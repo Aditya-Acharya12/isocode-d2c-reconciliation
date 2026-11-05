@@ -1,6 +1,6 @@
 # Architecture
 
-Status: approved direction, implementation not started. Hosting is limited to free tiers, and the deadline is 9 November 2026, 11:59 PM IST. Assumption IDs such as A3 refer to [assumptions.md](assumptions.md).
+Status: approved, with the foundation built (Milestone 1). Later sections describe parts still to come, and [implementation-plan.md](implementation-plan.md) tracks progress. Hosting is limited to free tiers, and the deadline is 9 November 2026, 11:59 PM IST. Assumption IDs such as A3 refer to [assumptions.md](assumptions.md).
 
 ## 1. System overview
 
@@ -26,7 +26,7 @@ Next.js on Vercel Hobby -- same-origin /api/* rewrite --> FastAPI on Render Free
 |---|---|---|
 | Monolith with clear layers | One developer, four days | Workers can't scale separately. That's fine at 30k orders a month |
 | Postgres `import_jobs` table as the job queue | Job state survives restarts and no extra infrastructure is needed | Lower throughput than a real broker, which this load doesn't need |
-| One in-process job thread, running one job at a time | Simplest option that can be tested by the deadline. A second process would load pandas again on a small free instance | A heavy job can slow API responses, and jobs can't run in parallel |
+| One in-process job thread, running one job at a time (section 14) | Simplest option that can be tested by the deadline. A second process would load pandas again on a small free instance | A heavy job can slow API responses, and jobs can't run in parallel |
 | Pandas for parsing, `COPY` for loading, SQL for aggregation | The only realistic way to reach 100k rows in under a minute | Less ORM use in the bulk paths |
 | Engine calculates in integer paise; database stores `NUMERIC(14,2)` | Floats must never touch money | Conversion is needed at the boundary |
 | Uploaded files gzip-compressed in a `bytea` table | Render's filesystem is wiped on restart, and evidence must survive | Uses Neon's 1 GB allowance, so uploads have a size limit |
@@ -34,9 +34,15 @@ Next.js on Vercel Hobby -- same-origin /api/* rewrite --> FastAPI on Render Free
 
 ### Authentication
 
-Passwords are hashed with Argon2. Access tokens are short-lived JWTs in an httpOnly, SameSite=Lax cookie. Next.js rewrites `/api/*` to the backend, so the browser sees one origin and third-party cookie blocking doesn't apply.
+Passwords are hashed with Argon2. Sessions are JWTs in an httpOnly, SameSite=Lax cookie, lasting 8 hours by default (`ACCESS_TOKEN_MINUTES`). Next.js rewrites `/api/*` to the backend, so the browser sees one origin and third-party cookie blocking doesn't apply.
 
-Vercel's documentation pages show proxied request timeouts of both 30 and 120 seconds, so the design assumes 30. Every long-running operation returns a job ID and the frontend polls for it. Vercel documents a 4.5 MB body limit for Functions, but I couldn't confirm whether it also applies to external rewrites. **This gets tested in Milestone 1.** If it does apply, uploads go directly to the API using a short-lived, upload-only token.
+The user is read from the database on every request, and tokens carry a `token_version`. So signing out revokes the token, and a deactivation or role change applies immediately. This costs one primary-key lookup per request.
+
+There's no Next.js route guard (`proxy.ts`). The API is the only access control, and a 401 sends the browser to the login page.
+
+Vercel's documentation pages show proxied request timeouts of both 30 and 120 seconds, so the design assumes 30. Every long-running operation returns a job ID and the frontend polls for it. Vercel documents a 4.5 MB body limit for Functions, but I couldn't confirm whether it also applies to external rewrites. **`backend/scripts/check_upload_limit.py` measures this on the deployment.** If the limit applies, uploads go directly to the API using a short-lived, upload-only token.
+
+`next start` buffers proxied request bodies up to `proxyClientMaxBodySize`, and uploads over that limit failed in local testing. It's set to 30 MB, above the API's limit. Next's documentation also warns that bodies over this limit can be silently truncated, so in Milestone 2 the browser will send a SHA-256 of each file, and the API will reject any upload that doesn't match.
 
 ## 2. Roles
 
@@ -101,7 +107,8 @@ All tables have `id` and `created_at`; mutable tables also have `updated_at`.
 | `uploaded_file_blobs` | `file_id`, `content_gzip` | Separate table, so listing files never loads their contents |
 | `column_mappings` | `partner_id`, `file_type`, `active_version_id` | Unique `(partner_id, file_type)` |
 | `mapping_versions` | `mapping_id`, `version`, `spec` (JSONB), `header_fingerprint`, `source` (ai, fallback, manual), `ai_suggestion` (JSONB), `approved_by`, `approved_at` | Immutable. Restoring an old version creates a new one that copies it, so history stays linear |
-| `import_jobs` | `file_id`, `mapping_version_id`, `status`, `heartbeat_at`, row counts, timings, `error` | Also serves as the job queue. A stale heartbeat marks a job as interrupted |
+| `background_jobs` | `kind`, `status`, `payload`, `idempotency_key`, `attempts`, `max_attempts`, `locked_by`, `heartbeat_at`, `error` | The persisted queue for imports and reconciliation runs. Unique `idempotency_key` stops the same work being queued twice |
+| `import_jobs` | `file_id`, `mapping_version_id`, `background_job_id`, row counts, timings | The business record of an import |
 | `import_row_errors` | `job_id`, `row_number`, `field`, `code`, `raw_value` | Downloadable as a report |
 
 ### Business records
@@ -296,7 +303,7 @@ All routes are under `/api/v1`. Lists are paginated with server-side filters. Lo
 | Dashboard | `GET /dashboard/summary`, `/by-category`, `/by-partner`, `/aging` |
 | Config | CRUD on `/partners`, `/rate-cards`, `POST /rate-cards/{id}/publish`, `/tax-rules`, `/settings` |
 | Audit | `GET /audit-logs` |
-| Health | `GET /healthz` (never touches the database, so it doesn't wake Neon) |
+| Health | `GET /api/healthz` (never touches the database, so it doesn't wake Neon) |
 
 Errors use one shape: `{ "code", "message", "details" }`.
 
@@ -320,7 +327,7 @@ Uses App Router, TanStack Query for server state and TanStack Table for server-s
 
 **Design direction:** closer to a ledger than a typical admin template. A neutral background, one accent, and red kept for money at risk so it stands out. Tabular numerals, right-aligned amounts, and dense but readable tables. No gradients, decorative icons or colourful KPI cards. Demo deployments carry a persistent "Synthetic demo data" banner.
 
-**Server wake-up state:** the login page polls `/healthz` before enabling sign-in and says the server is starting, which can take about a minute. A slow first request therefore looks like a known state, not a broken product. API calls retry safe requests after a 502 or 504.
+**Server wake-up state:** the login page polls `/api/healthz` before enabling sign-in and says the server is starting, which can take about a minute. A slow first request therefore looks like a known state, not a broken product. API calls retry safe requests after a 502 or 504.
 
 ## 11. Repository layout
 
@@ -354,15 +361,26 @@ Total hosting budget is ₹0. Limits were checked on 5 November 2026 and should 
 |---|---|---|
 | **Render Free** | Spins down after 15 idle minutes; waking takes about a minute | `/healthz` and the wake-up state above. Polling during a job counts as traffic |
 | | Can be restarted at any time; filesystem is ephemeral | Nothing is kept on local disk beyond temporary processing. On startup, interrupted jobs are marked, and each job's single transaction means they can safely re-run |
-| | No shell, one-off jobs or pre-deploy command | Migrations run in the start command (`alembic upgrade head`). Seeding runs from a developer machine against the direct Neon URL |
+| | No shell, one-off jobs or pre-deploy command | `scripts/start.py` runs migrations, then starts the server. A Postgres advisory lock makes concurrent starts wait for each other, and it's released automatically if the holder crashes. Seeding runs from a developer machine against the direct Neon URL |
 | | Reported as about 0.1 CPU and 512 MB RAM (third-party figure; not confirmed on Render's own pages) | One job at a time, compact dtypes, and measured deployed numbers. Chunked CSV parsing is the fallback if memory runs out |
 | | 750 instance hours per month | Enough for one service, as long as the workspace runs nothing else |
 | **Neon Free** | Scales to zero after 5 idle minutes; can't be disabled; Neon says it resumes in hundreds of milliseconds | `pool_pre_ping`, connection recycling and a retry when connecting. Actual resume time gets measured |
 | | 1 GB storage per project | Compressed uploads, retention on old result rows, and a demo seed of about 3,000 orders. Writes fail if this is exceeded |
-| | 100 CU-hours and 5 GB public transfer per project per month. Going over suspends the database | No keep-warm pings on the database. Autoscaling capped low. A **separate Neon project** for deployed benchmarks, so they can't exhaust or pollute the demo |
+| | 100 CU-hours and 5 GB public transfer per project per month. Going over suspends the database | No keep-warm pings on the database, and autoscaling capped low. If a deployed benchmark is run, it should use a separate Neon project, so it can't exhaust or pollute the demo |
 | | The pooled connection doesn't support session advisory locks or temp tables that outlive a commit | Two URLs: `DATABASE_URL` (pooled) for API requests, `DATABASE_URL_DIRECT` for jobs and migrations |
 | **Vercel Hobby** | Personal, non-commercial use only | Fine for this assignment. A real client deployment would need a paid plan |
 | | Proxy timeout (30 or 120 seconds, see section 1); possible body limit | Asynchronous jobs, and the upload test in Milestone 1 |
 | **Gemini free tier** (if used) | May use inputs for training, according to secondary sources | Synthetic data only. See A22 |
 
-**Performance reporting:** the 100k benchmark is run locally and reported as the local result. Deployed performance is measured separately and reported as measured, even if it misses the target or fails. No document may claim the free infrastructure meets the target unless a measurement shows it.
+**Performance reporting:** the reproducible 100k benchmark is run locally and reported as the local result. Deployed performance is reported separately if measured, even if it misses the target or fails, and documents say so plainly if it wasn't measured. No document may claim the free infrastructure meets the target unless a measurement shows it.
+
+## 14. Background job guarantees
+
+The job table exists from Milestone 1, and the runner arrives with imports in Milestone 2. It must provide:
+
+| Guarantee | How |
+|---|---|
+| **Persisted** | Every job is a row, written before any work starts |
+| **Recoverable** | The thread updates `heartbeat_at` while working. At startup, and periodically, a running job with a stale heartbeat is returned to the queue, up to `max_attempts`, then marked failed with a visible reason |
+| **Idempotent** | A job's business effects commit in one transaction, along with its status. An interrupted job therefore left nothing behind, and row-level unique constraints stop a re-run from duplicating data |
+| **Single execution** | Jobs are claimed with `FOR UPDATE SKIP LOCKED`, so an old and a new instance overlapping during a deploy can't both take one |

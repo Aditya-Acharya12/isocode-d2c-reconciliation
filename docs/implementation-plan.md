@@ -17,7 +17,7 @@ Everything is prioritised by whether this workflow needs it.
 | Tier | Meaning | Contents |
 |---|---|---|
 | **P0** | The submission fails without it | The workflow above, including settlement, COD, freight and returns logic. Login and RBAC, saved and versioned mappings, the 20-row preview, heuristic suggestions, rate-card calculations, tax separation, explanations, duplicate detection, the dashboard, the local 100k benchmark, deployment, and the submission documents |
-| **P1** | Expected, and built if P0 is on track | Gemini integration, rate-card editing in the UI, the missing-order-ID review queue screen, one Playwright test, mapping restore in the UI, deployed benchmark on a separate database |
+| **P1** | Expected, and built if P0 is on track | Gemini integration, rate-card editing in the UI, the missing-order-ID review queue screen, mapping restore in the UI, deployed benchmark on a separate database (which must not delay implementation) |
 | **P2** | Only with time left over | Bulk claims, batch evidence export, audit log screen, CI, mobile refinement of dense tables |
 
 Rate cards and unmatched records still work at P0. Rate cards can be viewed in the UI and seeded, and records with no matching order appear under Needs review, even if the dedicated queue screen slips.
@@ -29,6 +29,8 @@ Rate cards and unmatched records still work at P0. Rate cards can be viewed in t
 Each milestone ends with a running app and a working screen. The UI grows alongside the backend, so integration problems appear early.
 
 ### Milestone 1: Foundation (finish by end of 6 November)
+
+**Status: complete locally. The deployment and its tests are still outstanding, and Milestone 2 doesn't start until they pass.**
 
 **Build**
 - Project structure, `main` branch, public repository, Docker Compose for local Postgres
@@ -51,7 +53,8 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 - Structure detection and row validators
 - Heuristic mapping suggestions, then Gemini (P1) with its failure handling
 - 20-row preview, explicit approval, mapping versions and header fingerprints
-- Import jobs with the background thread, `COPY` loading, row error reports, interrupted job recovery
+- Import jobs with the background thread, `COPY` loading and row error reports, with the persistence, recovery and idempotency guarantees in architecture section 14
+- A browser-computed SHA-256 for each upload, checked by the API, so a truncated file is rejected
 - **Screens:** upload, import history with live job status, mapping review and preview
 - Data generator and benchmark script
 
@@ -111,7 +114,7 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 Cut in this order:
 
 1. Remaining P2 items
-2. Playwright test (a written manual end-to-end checklist remains)
+2. New Playwright coverage (a written manual end-to-end checklist remains)
 3. Gemini integration (heuristics remain, and documents say so)
 4. Mapping restore in the UI (the API remains)
 5. Rate-card editing in the UI (viewing and seeded data remain, and no button is shown that doesn't work)
@@ -135,7 +138,7 @@ The likely bottleneck is generating JSON explanations for each row, so those onl
 | Measurement | Environment | Reporting rule |
 |---|---|---|
 | Target benchmark | Local machine and local Postgres | Reported with machine specs and per-step timings |
-| Deployed benchmark | Render Free with a separate Neon project | Reported separately, as measured, including a miss or out-of-memory failure |
+| Deployed benchmark (if time permits) | Render Free with a separate Neon project | Reported separately, as measured, including a miss or out-of-memory failure. If it isn't run, documents say so |
 
 A local pass says nothing about the free hosting. No document may imply it does.
 
@@ -148,7 +151,7 @@ A local pass says nothing about the free hosting. No document may imply it does.
 | File handling | Wrong formats, oversized files, encodings, footer rows, corrupted AWBs, formula injection | P0 |
 | Heuristic mapping | Known headers, ambiguous headers, unsupported columns | P0 |
 | Gemini | Invalid JSON, unknown fields, timeouts, low confidence, and proof that suggestions can't reach calculations | P1, with the integration |
-| Frontend | Key component tests and one Playwright workflow | P1 |
+| Frontend | Playwright tests of the main workflows. These started in Milestone 1, and can also run against a deployment | P0 |
 
 ## Risks
 

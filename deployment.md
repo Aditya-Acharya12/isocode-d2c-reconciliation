@@ -1,0 +1,80 @@
+# Deployment
+
+Everything runs on free tiers: Neon for the database, Render for the API, and Vercel for the frontend. Deploy them in that order, because each one needs a value from the one before.
+
+> The deployed URLs and demo passwords will be added here once the deployment is live.
+
+## 1. Neon (database)
+
+1. Create a project in the **AWS Singapore** region, on Postgres 16 or newer.
+2. From the project's connection details, copy two connection strings:
+   - **Pooled**: the host contains `-pooler`. This becomes `DATABASE_URL`.
+   - **Direct**: the same string without `-pooler`. This becomes `DATABASE_URL_DIRECT`.
+
+Migrations and background jobs need the direct URL, because session-level advisory locks and staging tables don't work through the pooler.
+
+## 2. Render (API)
+
+1. Choose **New > Blueprint** and select this repository. Render reads `render.yaml`.
+2. Enter `DATABASE_URL` and `DATABASE_URL_DIRECT` when prompted. `JWT_SECRET` is generated for you.
+3. Wait for the deploy, then open `https://<service>.onrender.com/api/healthz`. It should return `{"status":"ok",...}`.
+
+Migrations run automatically at each start.
+
+## 3. Seed the demo users
+
+Render's free tier has no shell, so this runs from your own machine:
+
+```powershell
+cd backend
+$env:DATABASE_URL = "<Neon direct connection string>"
+$env:DATABASE_URL_DIRECT = "<Neon direct connection string>"
+$env:SEED_FINANCE_PASSWORD = "<choose one>"
+$env:SEED_FOUNDER_PASSWORD = "<choose one>"
+.\.venv\Scripts\python scripts\seed_foundation.py
+```
+
+These are demo-only passwords for synthetic data. Don't reuse a real password.
+
+## 4. Vercel (frontend)
+
+1. Import this repository, and set the **Root Directory** to `frontend`.
+2. Add the environment variable `API_ORIGIN`, set to the Render URL with no trailing slash. The build fails on purpose if it's missing.
+3. Deploy.
+
+## 5. Verify
+
+```powershell
+# Sign-in and role checks, through a real browser. Leave E2E_ALLOW_WRITES unset.
+cd frontend
+$env:E2E_BASE_URL = "https://<project>.vercel.app"
+$env:SEED_FINANCE_PASSWORD = "..."; $env:SEED_FOUNDER_PASSWORD = "..."
+npx playwright test
+
+# How large an upload passes through intact
+cd ..\backend
+$env:SEED_FINANCE_PASSWORD = "..."
+.\.venv\Scripts\python scripts\check_upload_limit.py https://<project>.vercel.app
+```
+
+Set `ENABLE_DIAGNOSTICS` to `false` on Render once the upload limits have been measured.
+
+## Environment variables
+
+| Service | Variable | Purpose |
+|---|---|---|
+| Render | `DATABASE_URL` | Neon pooled URL, for API requests |
+| Render | `DATABASE_URL_DIRECT` | Neon direct URL, for migrations and jobs |
+| Render | `JWT_SECRET` | Signs session tokens. At least 32 characters |
+| Render | `APP_ENV` | `production` turns off the API docs and requires secure cookies |
+| Render | `COOKIE_SECURE` | Must be `true` over HTTPS |
+| Render | `MAX_UPLOAD_MB` | Upload limit, default 25 |
+| Render | `DEMO_MODE` | Shows the synthetic data banner |
+| Render | `ENABLE_DIAGNOSTICS` | Enables the upload probe. Keep off except when testing |
+| Vercel | `API_ORIGIN` | The Render URL, used by the `/api` rewrite |
+
+## What to expect on free tiers
+
+- **First request after 15 idle minutes:** Render takes about a minute to wake. The login page says so and enables sign-in when ready.
+- **Database resume:** Neon suspends after 5 idle minutes, and resumes on the next query.
+- **Performance:** the free instance is small. Benchmarks from a local machine say nothing about this hosting, and deployed figures are reported separately.

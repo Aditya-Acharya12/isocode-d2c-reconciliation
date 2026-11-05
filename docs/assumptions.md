@@ -124,7 +124,7 @@ Only headers and masked samples are sent. Secondary sources say the Gemini free 
 ### A23. What "100,000 rows in under a minute" measures
 We read it as: from an approved import starting to all rows being committed, for one file. Reconciliation across 100,000 orders is measured and reported separately, against the same target.
 
-Both CSV and XLSX get measured. The benchmark that tests the target runs **locally**, and its report states the machine used. Deployed performance is measured separately and reported as measured, including any failure. Free-tier hosting isn't assumed to meet the target.
+Both CSV and XLSX get measured. The benchmark that tests the target runs **locally**, is reproducible from a script, and its report states the machine used. Deployed performance is reported separately if measured, including any failure. It's secondary to the local benchmark and won't delay implementation. Free-tier hosting isn't assumed to meet the target.
 
 ## Hosting
 
@@ -137,7 +137,10 @@ This is a demo setup, not a production recommendation. The first request after a
 The deployed demo holds about 3,000 synthetic orders, to stay well inside Neon's 1 GB limit. The 100k datasets are generated when needed and are never committed or loaded into the demo database.
 
 ### A26. AI mapping depends on time
-Heuristic suggestions are always available. Gemini is added if time permits, using a real provider call. If it isn't finished, the product describes its suggestions as rule-based and doesn't claim AI.
+Gemini is optional, as confirmed. Heuristic suggestions and a working ingestion pipeline come first and are always available. Gemini is added if time permits, using a real provider call. If it isn't finished, the product describes its suggestions as rule-based and doesn't claim AI.
+
+### A27. Node 22 is required for the frontend
+The Tailwind build tooling used by Next.js 16 fails on Node 20.16, because it loads ES modules through `require()`. The project pins Node 22 in `.nvmrc` and `package.json`.
 
 ## Out of scope
 

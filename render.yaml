@@ -1,0 +1,33 @@
+# Render Blueprint for the API. Values marked sync: false are entered in the dashboard.
+services:
+  - type: web
+    name: isocode-d2c-reconciliation-api
+    runtime: python
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Runs migrations under an advisory lock, then starts the server.
+    startCommand: python scripts/start.py
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: APP_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DEMO_MODE
+        value: "true"
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      # Turn this off once the deployed upload limits have been measured.
+      - key: ENABLE_DIAGNOSTICS
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      # Neon connection strings: the pooled one (host contains "-pooler") and the direct one.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_DIRECT
+        sync: false
