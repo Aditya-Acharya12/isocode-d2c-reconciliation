@@ -1,0 +1,39 @@
+# Secrets: only *.example files are committed
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+playwright-report/
+test-results/
+
+# Generated data: never commit datasets or partner files
+backend/benchmarks/data/
+backend/benchmarks/results/*.tmp
+*.xlsx
+*.csv
+!backend/tests/fixtures/**/*.csv
+!backend/tests/fixtures/**/*.xlsx
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
