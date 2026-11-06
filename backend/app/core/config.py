@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = 25
     enable_diagnostics: bool = False
     demo_mode: bool = True
+    max_import_rows: int = 200_000
+    enable_job_worker: bool = True
+    # Optional. Without a key, mapping suggestions come from the rule-based matcher.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
     @property
     def sqlalchemy_url(self) -> str:

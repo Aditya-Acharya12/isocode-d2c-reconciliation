@@ -17,5 +17,5 @@ ignore = ["B008"] # FastAPI's Depends() in defaults is the framework's idiom
 known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+"tests/**" = ["S101", "S105", "S106", "E501"]
 "scripts/**" = ["S105", "S106"]

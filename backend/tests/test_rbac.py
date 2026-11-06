@@ -2,6 +2,8 @@
 separate test fails if a route is added without being listed.
 """
 
+import re
+
 import pytest
 from sqlalchemy import func, select
 
@@ -24,6 +26,31 @@ ACCESS_MATRIX = [
     ("PATCH", "/api/v1/partners/{partner_id}", {"return_grace_days": 5}, False, True),
     ("GET", "/api/v1/audit-logs", None, True, True),
     ("POST", "/api/v1/diagnostics/upload-probe", None, True, False),
+    ("GET", "/api/v1/ingestion/schema", None, True, True),
+    ("GET", "/api/v1/sales-channels", None, True, True),
+    ("GET", "/api/v1/files", None, True, True),
+    ("GET", "/api/v1/files/{file_id}", None, True, True),
+    ("GET", "/api/v1/files/{file_id}/download", None, True, True),
+    ("GET", "/api/v1/jobs/{job_id}", None, True, True),
+    ("GET", "/api/v1/imports/{import_id}", None, True, True),
+    ("GET", "/api/v1/imports/{import_id}/errors", None, True, True),
+    ("GET", "/api/v1/imports/{import_id}/errors.csv", None, True, True),
+    ("GET", "/api/v1/mappings", None, True, True),
+    ("GET", "/api/v1/mappings/{mapping_id}/versions", None, True, True),
+    # Operating the workflow belongs to the finance executive alone.
+    ("POST", "/api/v1/files", None, True, False),
+    ("DELETE", "/api/v1/files/{file_id}", None, True, False),
+    ("POST", "/api/v1/files/{file_id}/mapping-suggestions", None, True, False),
+    ("POST", "/api/v1/files/{file_id}/validations", {"spec": {"fields": {}}}, True, False),
+    (
+        "POST",
+        "/api/v1/files/{file_id}/imports",
+        {"spec": {"fields": {}}, "validation_job_id": 1},
+        True,
+        False,
+    ),
+    ("POST", "/api/v1/imports/{import_id}/retry", None, True, False),
+    ("POST", "/api/v1/mappings/{mapping_id}/versions/{version}/restore", None, True, False),
     ("GET", "/api/v1/auth/me", None, True, True),
     ("POST", "/api/v1/auth/logout", None, True, True),
 ]
@@ -32,6 +59,8 @@ PUBLIC_ROUTES = {("POST", "/api/v1/auth/login"), ("GET", "/api/healthz")}
 
 def _send(client, method, path, body, partner_id):
     url = path.replace("{partner_id}", str(partner_id))
+    # Other IDs don't exist. An allowed role then gets 404, and a refused one still gets 403.
+    url = re.sub(r"\{\w+\}", "999999", url)
     return client.request(method, url, json=body) if body else client.request(method, url)
 
 

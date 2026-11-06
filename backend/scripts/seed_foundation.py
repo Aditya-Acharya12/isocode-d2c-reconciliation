@@ -34,6 +34,7 @@ PARTNERS = [
     ("Courier Aggregator A", PartnerType.COURIER, 10, 15),
     ("Courier Aggregator B", PartnerType.COURIER, 10, 15),
     ("Payment Gateway", PartnerType.PAYMENT_GATEWAY, 3, 15),
+    ("Warehouse", PartnerType.WAREHOUSE, 0, 0),
 ]
 
 CHANNELS = [

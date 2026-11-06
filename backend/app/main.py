@@ -1,8 +1,12 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, FastAPI, Request, Response
 
-from app.api.routes import audit, auth, diagnostics, partners, workspace
+from app.api.routes import audit, auth, diagnostics, ingestion, partners, workspace
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
+from app.services.jobs import worker
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -10,6 +14,16 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "same-origin",
     "Cache-Control": "no-store",
 }
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.enable_job_worker:
+        worker.start()  # runs its first check straight away, recovering interrupted jobs
+    yield
+    if settings.enable_job_worker:
+        worker.stop()
 
 
 def create_app() -> FastAPI:
@@ -20,6 +34,7 @@ def create_app() -> FastAPI:
         docs_url=None if settings.is_production else "/api/docs",
         redoc_url=None,
         openapi_url=None if settings.is_production else "/api/openapi.json",
+        lifespan=lifespan,
     )
     register_error_handlers(app)
 
@@ -37,7 +52,7 @@ def create_app() -> FastAPI:
         return {"status": "ok", "demo_mode": settings.demo_mode}
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (auth, workspace, partners, audit, diagnostics):
+    for module in (auth, workspace, partners, ingestion, audit, diagnostics):
         v1.include_router(module.router)
     app.include_router(v1)
     return app

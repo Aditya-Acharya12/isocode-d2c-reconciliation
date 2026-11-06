@@ -30,6 +30,9 @@ os.environ["COOKIE_SECURE"] = "false"
 os.environ["ENABLE_DIAGNOSTICS"] = "true"
 os.environ["MAX_UPLOAD_MB"] = "1"
 os.environ["DEMO_MODE"] = "true"
+# Tests run jobs explicitly, so that each step can be checked in between.
+os.environ["ENABLE_JOB_WORKER"] = "false"
+os.environ["GEMINI_API_KEY"] = ""
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402
@@ -129,3 +132,10 @@ def founder_client(users: dict[str, User]) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         assert login(test_client, FOUNDER_EMAIL).status_code == 200
         yield test_client
+
+
+@pytest.fixture
+def sources(db: Session, users: dict[str, User]) -> dict[str, int]:
+    from tests.ingestion_helpers import seed_sources
+
+    return seed_sources(db)

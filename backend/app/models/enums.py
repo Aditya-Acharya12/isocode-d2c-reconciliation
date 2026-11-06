@@ -6,6 +6,7 @@ class PartnerType(StrEnum):
     QUICK_COMMERCE = "quick_commerce"
     COURIER = "courier"
     PAYMENT_GATEWAY = "payment_gateway"
+    WAREHOUSE = "warehouse"
 
 
 class PaymentMethod(StrEnum):
@@ -60,7 +61,15 @@ class MappingSource(StrEnum):
     MANUAL = "manual"
 
 
+class IssueSeverity(StrEnum):
+    ERROR = "error"  # the row isn't imported
+    WARNING = "warning"  # the row is imported, or was deliberately left out, and says why
+    DUPLICATE = "duplicate"  # the row repeats one already seen
+
+
 class JobKind(StrEnum):
+    FILE_ANALYSIS = "file_analysis"
+    VALIDATION = "validation"
     IMPORT = "import"
     RECONCILIATION = "reconciliation"
 
