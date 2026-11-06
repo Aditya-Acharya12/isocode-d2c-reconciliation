@@ -4,7 +4,7 @@ Finds money a D2C brand is owed, order by order, across marketplace settlements,
 
 Built as a take-home for Isocode. The client is a Bengaluru home textiles brand with about 30,000 orders a month, sold through its website, three marketplaces and two quick-commerce platforms, and shipped through two courier aggregators.
 
-> **Status: Milestone 1 (foundation) complete locally, deployment pending.** Sign-in, roles, the database schema, partners and the audit log work. File import, reconciliation, claims and the dashboard aren't built yet. All data is synthetic.
+> **Status: Milestone 2 (ingestion) built and tested locally, not yet deployed.** Sign-in, roles, partners, the audit log, and the full import workflow work: upload, mapping review, validation, import and history. Reconciliation, claims and the dashboard aren't built yet. All data is synthetic.
 
 ## Scope
 
@@ -14,7 +14,7 @@ The brief asks for a small part built well. The priority is one complete workflo
 
 A money-at-risk dashboard, calculated from database records, sits on top of it.
 
-Suggestions never change money: a person approves every column mapping, and all financial calculations are deterministic code. Mapping suggestions come from a rule-based matcher, with Gemini added behind the same interface if time permits. AI features are only described as AI if a real provider integration exists.
+Suggestions never change money: a person approves every column mapping, and all financial calculations are deterministic code. Mapping suggestions come from a rule-based matcher. An optional Gemini integration sits behind the same interface and is used only if `GEMINI_API_KEY` is set. It's tested against mocked responses, not yet against the live API, and the screen always says which one produced the suggestions.
 
 ## Run it locally
 
@@ -69,6 +69,7 @@ npx playwright test
 | [docs/architecture.md](docs/architecture.md) | System design, schema, canonical model, reconciliation engine, API, screens, free-tier deployment, job guarantees |
 | [docs/assumptions.md](docs/assumptions.md) | What the brief leaves open, what we assumed and what the client must confirm |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Four milestones to the 9 November deadline, priorities, cut order, performance plan |
+| [docs/benchmarks.md](docs/benchmarks.md) | Measured 100k-row performance, and how to reproduce it |
 | [deployment.md](deployment.md) | How to deploy to Vercel, Render and Neon |
 
 ## Stack

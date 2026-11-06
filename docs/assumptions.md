@@ -111,7 +111,21 @@ Only the co-founder can change rate cards, and the co-founder has read-only acce
 - Without a reference, identical rows are treated as duplicates by hashing their canonical fields. Two genuine identical payments with no reference would collapse into one, so they appear in the report for a person to check.
 
 ### A20. Order files update; transaction files append
-Delivery status legitimately changes between uploads, so a later order file updates the existing row and the change is audited. Transactions are never overwritten.
+Delivery status legitimately changes between uploads, so a later order file updates the existing row. A blank cell in the later file doesn't erase a known value. The audit log records how many orders each import added and updated, but not each order's earlier values. Transactions are never overwritten.
+
+### A28. One order file belongs to one sales channel
+The channel is chosen at upload. A combined export covering several channels would need splitting first.
+
+**Confirm:** the shape of the client's order exports.
+
+### A29. Warehouse receipts count as a sixth file category
+The brief's data list includes them, and detecting missing returns needs them. A warehouse is modelled as a partner of type `warehouse`.
+
+### A30. Weights are in grams
+Weight fields expect grams, with no unit conversion. A column in kilograms should be left unmapped, as its values would otherwise be read as grams.
+
+### A31. Amounts with more than two decimals are rounded
+They import rounded to paise by Postgres, with a warning on each such row.
 
 ### A21. Partial loads are allowed
 Valid rows load and invalid rows are reported, instead of rejecting a whole file. A failure in the load itself rolls back everything.
@@ -137,7 +151,7 @@ This is a demo setup, not a production recommendation. The first request after a
 The deployed demo holds about 3,000 synthetic orders, to stay well inside Neon's 1 GB limit. The 100k datasets are generated when needed and are never committed or loaded into the demo database.
 
 ### A26. AI mapping depends on time
-Gemini is optional, as confirmed. Heuristic suggestions and a working ingestion pipeline come first and are always available. Gemini is added if time permits, using a real provider call. If it isn't finished, the product describes its suggestions as rule-based and doesn't claim AI.
+Gemini is optional, as confirmed. Heuristic suggestions are always available, and are what runs unless `GEMINI_API_KEY` is set. The Gemini integration makes a real REST call with a structured output schema, but it has only been tested against mocked responses, because no key has been configured. It hasn't yet been exercised against the live API. If it isn't finished, the product describes its suggestions as rule-based and doesn't claim AI.
 
 ### A27. Node 22 is required for the frontend
 The Tailwind build tooling used by Next.js 16 fails on Node 20.16, because it loads ES modules through `require()`. The project pins Node 22 in `.nvmrc` and `package.json`.

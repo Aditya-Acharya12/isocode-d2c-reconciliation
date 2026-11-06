@@ -103,13 +103,13 @@ All tables have `id` and `created_at`; mutable tables also have `updated_at`.
 
 | Table | Key columns | Constraints and notes |
 |---|---|---|
-| `uploaded_files` | `partner_id`, `file_type`, `filename`, `sha256`, `size_bytes`, `uploaded_by`, `is_synthetic` | Unique `(partner_id, file_type, sha256)` catches a repeat upload |
+| `uploaded_files` | `partner_id` or `channel_id`, `file_type`, `filename`, `sha256`, `size_bytes`, `uploaded_by`, `is_synthetic`, `detection` | Comes from exactly one source: orders from a sales channel, everything else from a partner. The same content can't be uploaded twice for a file type, even under a different source, because that would count the same money twice |
 | `uploaded_file_blobs` | `file_id`, `content_gzip` | Separate table, so listing files never loads their contents |
-| `column_mappings` | `partner_id`, `file_type`, `active_version_id` | Unique `(partner_id, file_type)` |
+| `column_mappings` | `partner_id` or `channel_id`, `file_type`, `active_version_id` | One per source and file type |
 | `mapping_versions` | `mapping_id`, `version`, `spec` (JSONB), `header_fingerprint`, `source` (ai, fallback, manual), `ai_suggestion` (JSONB), `approved_by`, `approved_at` | Immutable. Restoring an old version creates a new one that copies it, so history stays linear |
-| `background_jobs` | `kind`, `status`, `payload`, `idempotency_key`, `attempts`, `max_attempts`, `locked_by`, `heartbeat_at`, `error` | The persisted queue for imports and reconciliation runs. Unique `idempotency_key` stops the same work being queued twice |
+| `background_jobs` | `kind` (file_analysis, validation, import, reconciliation), `status`, `payload`, `result`, `idempotency_key`, `attempts`, `max_attempts`, `locked_by`, `heartbeat_at`, `error` | The persisted queue. Unique `idempotency_key` stops the same work being queued twice |
 | `import_jobs` | `file_id`, `mapping_version_id`, `background_job_id`, row counts, timings | The business record of an import |
-| `import_row_errors` | `job_id`, `row_number`, `field`, `code`, `raw_value` | Downloadable as a report |
+| `import_row_errors` | `import_job_id`, `row_number`, `field`, `code`, `severity` (error, warning, duplicate), `message`, `raw_value` | Every issue found in a row, downloadable as a report. Stored up to 20,000 per import, worst first, to protect Neon's free storage. Counts always stay exact |
 
 ### Business records
 
@@ -294,9 +294,11 @@ All routes are under `/api/v1`. Lists are paginated with server-side filters. Lo
 | Area | Routes |
 |---|---|
 | Auth | `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` |
-| Files | `POST /files`, `GET /files`, `GET /files/{id}`, `GET /files/{id}/download` |
-| Mapping | `POST /files/{id}/mapping-suggestions`, `POST /files/{id}/preview`, `GET /mappings`, `GET /mappings/{id}/versions`, `POST /mappings/{id}/versions`, `POST /mappings/{id}/versions/{v}/restore` |
-| Imports | `POST /imports`, `GET /imports`, `GET /imports/{id}`, `GET /imports/{id}/errors.csv` |
+| Reference | `GET /ingestion/schema`, `GET /sales-channels` |
+| Files | `POST /files`, `GET /files`, `GET /files/{id}`, `GET /files/{id}/download`, `DELETE /files/{id}` (only before import) |
+| Mapping | `POST /files/{id}/mapping-suggestions`, `POST /files/{id}/validations`, `GET /mappings`, `GET /mappings/{id}/versions`, `POST /mappings/{id}/versions/{v}/restore` |
+| Imports | `POST /files/{id}/imports`, `GET /imports/{id}`, `POST /imports/{id}/retry`, `GET /imports/{id}/errors`, `GET /imports/{id}/errors.csv`. Import history is `GET /files` |
+| Jobs | `GET /jobs/{id}` |
 | Reconciliation | `POST /recon/runs`, `GET /recon/runs`, `GET /recon/runs/{id}`, `GET /recon/results`, `GET /recon/results/{order_id}`, `GET /recon/results/export.csv` |
 | Review queue | `GET /match-suggestions`, `POST /match-suggestions/{id}/confirm`, `POST /match-suggestions/{id}/reject` |
 | Claims | `POST /claims`, `GET /claims`, `GET /claims/{id}`, `PATCH /claims/{id}`, `POST /claims/{id}/transitions`, `GET /claims/{id}/evidence.xlsx` |
@@ -378,7 +380,9 @@ Total hosting budget is ₹0. Limits were checked on 5 November 2026 and should 
 
 ## 14. Background job guarantees
 
-The job table exists from Milestone 1, and the runner arrives with imports in Milestone 2. It must provide:
+Analysis, validation and import all run as jobs, in `app/services/jobs.py`. Full-file work can't run inside a request, because a proxied request may be cut off after 30 seconds. The worker thread sleeps until a job arrives and doesn't poll the database while idle, as a timer would stop Neon scaling to zero and use up its monthly compute. The one exception is a job marked running by another instance, which is rechecked every 60 seconds until it finishes or goes stale. Pandas is only imported when the first job runs, so an idle server doesn't hold it in memory.
+
+Tests kill a real process just before commit, and confirm that nothing was written and that the job recovers and runs exactly once.
 
 | Guarantee | How |
 |---|---|

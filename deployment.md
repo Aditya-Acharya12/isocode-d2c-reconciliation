@@ -74,6 +74,29 @@ $env:E2E_BASE_URL = "https://<project>.vercel.app"
 
 Set `ENABLE_DIAGNOSTICS` to `false` on Render once the upload limits have been measured.
 
+## Updating an existing deployment
+
+Pushing to `main` redeploys Render and Vercel. Migrations run automatically at start, under the advisory lock.
+
+After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner, though it also resets the demo users' passwords to the values in your credentials file.
+
+```powershell
+.\.venv\Scripts\python scripts\with_env.py --env-file $deploy --env-file $creds --dns 1.1.1.1 -- .\.venv\Scripts\python scripts\seed_foundation.py
+```
+
+## Verify the ingestion workflow
+
+Use the Finance Executive account, and small synthetic files only. Check Neon's storage afterwards, as the free plan allows 1 GB.
+
+1. Under **Imports**, choose **Orders** and **Website**, drop in a small CSV, and upload it. The page should show "Reading the file…" and then the mapping table.
+2. Check the confidence and reasons, change a mapping by hand, and choose **Validate these rows**.
+3. Check the counts and row issues in the summary, then choose **Approve and import**.
+4. Confirm the status reaches **Imported** and the row counts are right. Download the row issues CSV if any rows failed.
+5. Upload the same file again. It should be refused, with a link to the earlier upload.
+6. Sign in as the Co-founder. The history should be visible, with no upload panel.
+
+**Testing a restart:** start an import of a larger file, and restart the service from Render's dashboard while it runs. After about two minutes, the job should return to the queue and finish, with no duplicate rows.
+
 ## Environment variables
 
 | Service | Variable | Purpose |
@@ -86,6 +109,10 @@ Set `ENABLE_DIAGNOSTICS` to `false` on Render once the upload limits have been m
 | Render | `MAX_UPLOAD_MB` | Upload limit, default 25 |
 | Render | `DEMO_MODE` | Shows the synthetic data banner |
 | Render | `ENABLE_DIAGNOSTICS` | Enables the upload probe. Keep off except when testing |
+| Render | `ENABLE_JOB_WORKER` | Optional, default `true`. Runs the background job thread |
+| Render | `MAX_IMPORT_ROWS` | Optional, default 200000. Largest file that can be imported |
+| Render | `GEMINI_API_KEY` | Optional. Without it, suggestions are rule-based. Synthetic data only on the free tier |
+| Render | `GEMINI_MODEL` | Optional, default `gemini-2.5-flash` |
 | Vercel | `API_ORIGIN` | The Render URL, used by the `/api` rewrite |
 
 ## What to expect on free tiers

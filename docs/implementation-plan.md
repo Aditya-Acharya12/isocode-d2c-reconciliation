@@ -30,7 +30,7 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 
 ### Milestone 1: Foundation (finish by end of 6 November)
 
-**Status: built and tested locally, and the Neon database is verified. Render, Vercel and the live tests are still outstanding, and Milestone 2 doesn't start until they pass.**
+**Status: built and tested locally, and the Neon database is verified. Deployed to Render with Neon, as reported by the project owner.**
 
 **Build**
 - Project structure, `main` branch, public repository, Docker Compose for local Postgres
@@ -47,6 +47,8 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 **Done when:** both demo users can log in on the deployed URL and see the correct navigation for their role.
 
 ### Milestone 2: Ingestion (finish by end of 7 November)
+
+**Status: built and tested locally, awaiting review before deployment. See [benchmarks.md](benchmarks.md) for measured performance.**
 
 **Build**
 - CSV and XLSX upload, file checks, compressed storage, duplicate detection
