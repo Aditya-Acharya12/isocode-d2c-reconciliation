@@ -352,6 +352,8 @@ docker-compose.yml
 - All SQL is parameterised, including dynamic filters.
 - Sensitive actions are written to the audit log in the same transaction as the change.
 - The repository only ever contains synthetic data. Demo credentials are demo-only and published in `deployment.md`.
+- Deployment credentials stay outside the repository. `scripts/with_env.py` loads them for a single local command, and masks them in its output.
+- The test suite drops the whole schema, so it refuses to run on any database not named for testing.
 
 ## 13. Free-tier deployment
 

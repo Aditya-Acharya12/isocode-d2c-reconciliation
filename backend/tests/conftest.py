@@ -10,8 +10,20 @@ from pathlib import Path
 os.environ.setdefault(
     "TEST_DATABASE_URL", "postgresql://recon:recon_local_only@localhost:5433/recon_test"
 )
+
+
+def assert_disposable_database(url: str) -> None:
+    """These tests drop the whole schema, so a real database must never reach them."""
+    database = url.rsplit("/", 1)[-1].split("?")[0]
+    if "test" not in database and "scratch" not in database:
+        raise SystemExit(f"Refusing to run tests against database {database!r}.")
+
+
+assert_disposable_database(os.environ["TEST_DATABASE_URL"])
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
-os.environ["DATABASE_URL_DIRECT"] = ""
+# Set to run against a hosted pair of URLs. Session locks need the direct connection.
+os.environ["DATABASE_URL_DIRECT"] = os.environ.get("TEST_DATABASE_URL_DIRECT", "")
+assert_disposable_database(os.environ["DATABASE_URL_DIRECT"] or os.environ["DATABASE_URL"])
 os.environ["JWT_SECRET"] = "test-only-secret-that-is-long-enough-for-validation"
 os.environ["APP_ENV"] = "test"
 os.environ["COOKIE_SECURE"] = "false"
@@ -26,7 +38,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
-from app.core.database import get_engine  # noqa: E402
+from app.core.database import get_direct_engine, get_engine  # noqa: E402
 from app.core.permissions import Role  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.main import app  # noqa: E402
@@ -48,7 +60,7 @@ def alembic_config() -> Config:
 
 
 def reset_schema() -> None:
-    with get_engine().begin() as connection:
+    with get_direct_engine().begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
 

@@ -30,7 +30,7 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 
 ### Milestone 1: Foundation (finish by end of 6 November)
 
-**Status: complete locally. The deployment and its tests are still outstanding, and Milestone 2 doesn't start until they pass.**
+**Status: built and tested locally, and the Neon database is verified. Render, Vercel and the live tests are still outstanding, and Milestone 2 doesn't start until they pass.**
 
 **Build**
 - Project structure, `main` branch, public repository, Docker Compose for local Postgres

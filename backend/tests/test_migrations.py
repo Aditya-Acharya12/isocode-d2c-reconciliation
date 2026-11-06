@@ -11,7 +11,7 @@ from alembic import command
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 
-from app.core.database import get_engine
+from app.core.database import get_direct_engine, get_engine
 from app.models import Base
 from tests.conftest import BACKEND_DIR, alembic_config, reset_schema
 
@@ -57,7 +57,8 @@ def test_concurrent_startup_migrations_all_succeed(empty_schema):
 
 
 def test_a_second_migrator_waits_for_the_lock(empty_schema):
-    with get_engine().connect().execution_options(isolation_level="AUTOCOMMIT") as holder:
+    lock_engine = get_direct_engine()
+    with lock_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as holder:
         holder.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
         process = _alembic_upgrade()
         time.sleep(4)
@@ -72,17 +73,19 @@ def test_a_second_migrator_waits_for_the_lock(empty_schema):
 def test_a_crashed_migrator_does_not_leave_the_lock_held(empty_schema):
     """Postgres releases session locks when the connection ends."""
     release = threading.Event()
+    locked = threading.Event()
 
     def hold_then_disconnect() -> None:
-        connection = get_engine().connect().execution_options(isolation_level="AUTOCOMMIT")
+        connection = get_direct_engine().connect().execution_options(isolation_level="AUTOCOMMIT")
         connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+        locked.set()
         release.wait(timeout=30)
         connection.invalidate()  # drops the socket, as a crash would
         connection.close()
 
     holder = threading.Thread(target=hold_then_disconnect)
     holder.start()
-    time.sleep(1)
+    assert locked.wait(timeout=30)
     process = _alembic_upgrade()
     time.sleep(1)
     release.set()

@@ -6,12 +6,32 @@ Everything runs on free tiers: Neon for the database, Render for the API, and Ve
 
 ## 1. Neon (database)
 
-1. Create a project in the **AWS Singapore** region, on Postgres 16 or newer.
+1. Create a project in the **AWS Singapore** region, on Postgres 16. This is what the project is tested on.
 2. From the project's connection details, copy two connection strings:
    - **Pooled**: the host contains `-pooler`. This becomes `DATABASE_URL`.
    - **Direct**: the same string without `-pooler`. This becomes `DATABASE_URL_DIRECT`.
+3. Save both in a file **outside the repository**, and outside any synced folder such as OneDrive:
+
+   ```
+   DATABASE_URL=<pooled string>
+   DATABASE_URL_DIRECT=<direct string>
+   ```
 
 Migrations and background jobs need the direct URL, because session-level advisory locks and staging tables don't work through the pooler.
+
+Local commands reach Neon through `scripts/with_env.py`, which loads that file for one command and masks secrets in the output. The app itself only reads ordinary environment variables, so the file's path never reaches production settings.
+
+```powershell
+cd backend
+$deploy = "C:\path\to\.env.deploy"
+.\.venv\Scripts\python scripts\with_env.py --env-file $deploy -- .\.venv\Scripts\python scripts\verify_database.py urls
+.\.venv\Scripts\python scripts\with_env.py --env-file $deploy -- .\.venv\Scripts\python scripts\verify_database.py concurrent-migrate
+.\.venv\Scripts\python scripts\with_env.py --env-file $deploy -- .\.venv\Scripts\python scripts\verify_database.py schema
+```
+
+**If the hostname won't resolve (`getaddrinfo failed`):** some home routers fail to resolve `*.aws.neon.tech`, even though the hostname is valid. Add `--dns 1.1.1.1` to any `with_env.py` command. It looks the address up on that DNS server and passes it to the driver as `hostaddr`, while TLS and Neon's routing keep using the real hostname. This only affects local commands, not the deployed app.
+
+**Never point the test suite at this database.** The tests drop the whole schema, so they refuse any database whose name doesn't contain `test` or `scratch`. To run them on Neon, use `verify_database.py scratch-pytest`, which creates a temporary database and always deletes it.
 
 ## 2. Render (API)
 
@@ -27,14 +47,12 @@ Render's free tier has no shell, so this runs from your own machine:
 
 ```powershell
 cd backend
-$env:DATABASE_URL = "<Neon direct connection string>"
-$env:DATABASE_URL_DIRECT = "<Neon direct connection string>"
-$env:SEED_FINANCE_PASSWORD = "<choose one>"
-$env:SEED_FOUNDER_PASSWORD = "<choose one>"
-.\.venv\Scripts\python scripts\seed_foundation.py
+$creds = "C:\path\to\demo-credentials.env"
+.\.venv\Scripts\python scripts\generate_demo_credentials.py $creds
+.\.venv\Scripts\python scripts\with_env.py --env-file $deploy --env-file $creds -- .\.venv\Scripts\python scripts\seed_foundation.py
 ```
 
-These are demo-only passwords for synthetic data. Don't reuse a real password.
+The generator creates random passwords without printing them, and never overwrites an existing file. Keep that file outside the repository. It's safe to run the seed again.
 
 ## 4. Vercel (frontend)
 
@@ -45,16 +63,13 @@ These are demo-only passwords for synthetic data. Don't reuse a real password.
 ## 5. Verify
 
 ```powershell
+# From backend/
 # Sign-in and role checks, through a real browser. Leave E2E_ALLOW_WRITES unset.
-cd frontend
 $env:E2E_BASE_URL = "https://<project>.vercel.app"
-$env:SEED_FINANCE_PASSWORD = "..."; $env:SEED_FOUNDER_PASSWORD = "..."
-npx playwright test
+.\.venv\Scripts\python scripts\with_env.py --env-file $creds --cwd ..\frontend -- npx playwright test
 
 # How large an upload passes through intact
-cd ..\backend
-$env:SEED_FINANCE_PASSWORD = "..."
-.\.venv\Scripts\python scripts\check_upload_limit.py https://<project>.vercel.app
+.\.venv\Scripts\python scripts\with_env.py --env-file $creds -- .\.venv\Scripts\python scripts\check_upload_limit.py https://<project>.vercel.app
 ```
 
 Set `ENABLE_DIAGNOSTICS` to `false` on Render once the upload limits have been measured.
