@@ -78,6 +78,10 @@ Set `ENABLE_DIAGNOSTICS` to `false` on Render once the upload limits have been m
 
 Pushing to `main` redeploys Render and Vercel. Migrations run automatically at start, under the advisory lock.
 
+**Startup checks:** in production, the API refuses to start if `DATABASE_URL` or `DATABASE_URL_DIRECT` is missing, malformed, swapped or identical. The log names the variable and the problem, such as `DATABASE_URL_DIRECT starts with a variable name`, and never repeats its value. Values must be the bare connection string, with no quotes, spaces, `psql` or variable name.
+
+**Rolling back:** don't use `alembic downgrade` on real data. Downgrading `0002` deletes imported order data, and refuses to run if records depend on a warehouse. Instead, create a Neon branch before migrating as a restore point. The older code also runs on the newer schema, because `0002` only adds to it, so redeploying the previous commit doesn't need a downgrade.
+
 After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner, though it also resets the demo users' passwords to the values in your credentials file.
 
 ```powershell
@@ -102,7 +106,7 @@ Use the Finance Executive account, and small synthetic files only. Check Neon's 
 | Service | Variable | Purpose |
 |---|---|---|
 | Render | `DATABASE_URL` | Neon pooled URL, for API requests |
-| Render | `DATABASE_URL_DIRECT` | Neon direct URL, for migrations and jobs |
+| Render | `DATABASE_URL_DIRECT` | Neon direct URL, for migrations and jobs. Required in production, with no fallback |
 | Render | `JWT_SECRET` | Signs session tokens. At least 32 characters |
 | Render | `APP_ENV` | `production` turns off the API docs and requires secure cookies |
 | Render | `COOKIE_SECURE` | Must be `true` over HTTPS |
