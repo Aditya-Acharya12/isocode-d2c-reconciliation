@@ -1,5 +1,8 @@
 # Local development database only. The API and frontend run natively so that
 # reloads stay fast on Windows.
+# The fixed name keeps the same data volume wherever the repository folder lives.
+name: isocode-d2c-reconciliation
+
 services:
   postgres:
     image: postgres:16-alpine
