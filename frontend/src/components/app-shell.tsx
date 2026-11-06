@@ -23,6 +23,8 @@ interface NavItem {
 // The API enforces these permissions too. Hiding a link here is only a convenience.
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Overview", permission: "view_workspace" },
+  { href: "/imports", label: "Imports", permission: "view_workspace" },
+  { href: "/settings/mappings", label: "Saved mappings", permission: "view_workspace" },
   { href: "/settings/partners", label: "Partners", permission: "view_config" },
   { href: "/activity", label: "Audit log", permission: "view_all_audit" },
   { href: "/activity", label: "My activity", permission: "view_own_audit" },
@@ -77,7 +79,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <nav aria-label="Main" className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
             {items.map((item) => {
-              const active = pathname === item.href;
+              const active =
+                pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
               return (
                 <Link
                   key={item.label}

@@ -41,6 +41,7 @@ const TYPE_LABELS: Record<PartnerType, string> = {
   quick_commerce: "Quick commerce",
   courier: "Courier",
   payment_gateway: "Payment gateway",
+  warehouse: "Warehouse",
 };
 const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }));
 const PARTNERS_KEY = ["partners"];

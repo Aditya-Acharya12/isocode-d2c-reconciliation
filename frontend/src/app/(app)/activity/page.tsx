@@ -26,6 +26,14 @@ const ACTION_LABELS: Record<string, string> = {
   "auth.logout": "Signed out",
   "partner.create": "Added partner",
   "partner.update": "Changed partner",
+  "file.upload": "Uploaded a file",
+  "file.delete": "Deleted a file",
+  "mapping.approve": "Approved a column mapping",
+  "mapping.restore": "Restored a column mapping",
+  "import.start": "Started an import",
+  "import.retry": "Retried an import",
+  "import.complete": "Import finished",
+  "import.failed": "Import failed",
 };
 
 export default function ActivityPage() {

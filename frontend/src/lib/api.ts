@@ -87,6 +87,48 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   throw lastError ?? new ApiError(0, "network_error", NETWORK_ERROR);
 }
 
+async function sha256Hex(file: File): Promise<string | null> {
+  // Only available on HTTPS and localhost. The API's own hash still catches duplicates.
+  if (!globalThis.crypto?.subtle) return null;
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Uploads with a checksum, so the API can refuse a file damaged on the way. Retrying is
+ * safe: if a lost response hid a success, the retry reports it as a duplicate.
+ */
+export async function uploadFile<T>(file: File, fields: Record<string, string>): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+  for (const [name, value] of Object.entries(fields)) form.append(name, value);
+  const hash = await sha256Hex(file);
+  if (hash) form.append("sha256", hash);
+
+  let lastError: ApiError | undefined;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    let response: Response;
+    try {
+      response = await fetch("/api/v1/files", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+    } catch {
+      lastError = new ApiError(0, "network_error", NETWORK_ERROR);
+      continue;
+    }
+    if (response.ok) return (await response.json()) as T;
+    const error = await toApiError(response);
+    if (!RETRYABLE_STATUSES.has(response.status)) throw error;
+    lastError = error;
+  }
+  throw lastError ?? new ApiError(0, "network_error", NETWORK_ERROR);
+}
+
 /** Maps a validation response to messages per form field. */
 export function fieldErrors(error: unknown): Record<string, string> {
   if (!(error instanceof ApiError) || !Array.isArray(error.details)) {

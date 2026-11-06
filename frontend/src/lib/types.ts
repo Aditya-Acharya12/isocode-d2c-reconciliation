@@ -24,7 +24,12 @@ export interface WorkspaceSummary {
   open_claims: number;
 }
 
-export type PartnerType = "marketplace" | "quick_commerce" | "courier" | "payment_gateway";
+export type PartnerType =
+  | "marketplace"
+  | "quick_commerce"
+  | "courier"
+  | "payment_gateway"
+  | "warehouse";
 
 export interface Partner {
   id: number;

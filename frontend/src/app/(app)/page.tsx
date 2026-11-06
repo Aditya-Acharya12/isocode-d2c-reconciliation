@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 
 import { EmptyState, ErrorState, PageHeader, RowsSkeleton } from "@/components/states";
 import { api } from "@/lib/api";
@@ -31,7 +32,11 @@ export default function OverviewPage() {
         <div className="space-y-8">
           {summary.data.orders === 0 && (
             <EmptyState title="No orders yet">
-              Money-at-risk figures appear here once partner files are imported and reconciled.
+              Start by{" "}
+              <Link href="/imports" className="underline underline-offset-3">
+                importing partner files
+              </Link>
+              . Money-at-risk figures arrive with reconciliation.
             </EmptyState>
           )}
           <dl className="max-w-md divide-y border-y">
