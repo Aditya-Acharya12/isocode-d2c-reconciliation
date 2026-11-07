@@ -62,6 +62,8 @@ $env:E2E_ALLOW_WRITES = "true"   # leave unset on a deployment
 npx playwright test
 ```
 
+**Don't keep the repository in OneDrive or another cloud-sync folder.** OneDrive turns synced files into placeholders that Node reports as links, and Playwright skips them without a warning, so a run would pass with fewer tests. `playwright.config.ts` refuses to run when that happens. Clone or move the repository to an unsynced folder, such as `C:\dev`, and expect all 19 browser tests to run.
+
 ## Documentation
 
 | Document | Contents |
