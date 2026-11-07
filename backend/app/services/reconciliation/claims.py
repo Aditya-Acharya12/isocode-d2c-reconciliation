@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,11 @@ ACTIVE = (
     ClaimStatus.PARTIALLY_RECOVERED,
 )
 TERMINAL = (ClaimStatus.RECOVERED, ClaimStatus.REJECTED, ClaimStatus.WRITTEN_OFF)
+# A discrepancy with a claim in one of these can't be claimed again. This must match the
+# partial unique index on claims.discrepancy_id, which excludes rejected and written off.
+BLOCKS_NEW_CLAIM = (*ACTIVE, ClaimStatus.RECOVERED)
+# A claim closed with no further recovery expected.
+CLOSED = (ClaimStatus.RECOVERED, ClaimStatus.WRITTEN_OFF)
 TRANSITIONS: dict[ClaimStatus, tuple[ClaimStatus, ...]] = {
     ClaimStatus.DRAFT: (ClaimStatus.SUBMITTED, ClaimStatus.WRITTEN_OFF),
     ClaimStatus.SUBMITTED: (
@@ -67,6 +72,123 @@ def claimed_amount(claim: Claim) -> Decimal:
     return abs(claim.difference or Decimal("0"))
 
 
+# --- Exposure ------------------------------------------------------------------------
+#
+# How much of an open discrepancy is still at risk, once its claim is taken into account.
+# docs/architecture.md section 8 describes this in words.
+
+ZERO = Decimal("0")
+
+
+def split_exposure(
+    current: Decimal, claimed: Decimal, recovered: Decimal, status: ClaimStatus | None
+) -> tuple[Decimal, Decimal]:
+    """Returns (at risk, written off) for one open discrepancy. Neither is ever negative.
+
+    current: the shortfall the latest run still sees. claimed: the shortfall when the claim
+    was filed. recovered: the running total finance entered on the claim. status: the
+    claim's status, or None when there's no claim (or only a rejected one).
+
+    A recovery can reach the data too, as a later settlement or remittance, and then the
+    run already shows a smaller shortfall. That part is counted once, not twice: only the
+    recovery the data doesn't yet show is subtracted.
+    """
+    if status is None or status == ClaimStatus.REJECTED:
+        return max(current, ZERO), ZERO
+    already_in_data = max(claimed - current, ZERO)
+    not_yet_in_data = max(recovered - already_in_data, ZERO)
+    outstanding = max(current - not_yet_in_data, ZERO)
+    if status not in CLOSED:
+        return outstanding, ZERO
+    # A closed claim stops the chase for what it claimed. Anything still outstanding within
+    # that amount is written off. A shortfall that has grown beyond the claim stays at risk.
+    written_off = min(outstanding, max(claimed - recovered, ZERO))
+    return outstanding - written_off, written_off
+
+
+def exposure_by_category(db: Session) -> dict[str, dict]:
+    """Open discrepancies by category: count, gross shortfall, at risk, written off and
+    the recovery entered on their claims."""
+    out: dict[str, dict] = {}
+
+    def bucket(category: str) -> dict:
+        return out.setdefault(
+            category,
+            {"count": 0, "gross": ZERO, "at_risk": ZERO, "written_off": ZERO, "recovered": ZERO},
+        )
+
+    # The claim that governs each discrepancy: the one blocking a new claim if there is
+    # one (at most one, by the unique index), otherwise the latest written off. A rejected
+    # claim never governs: the discrepancy is back to being fully at risk.
+    governing = (
+        select(
+            Claim.discrepancy_id,
+            Claim.status,
+            func.abs(Claim.difference).label("claimed"),
+            Claim.recovered_amount,
+        )
+        .where(Claim.status != ClaimStatus.REJECTED)
+        .order_by(Claim.discrepancy_id, (Claim.status == ClaimStatus.WRITTEN_OFF), Claim.id.desc())
+        .distinct(Claim.discrepancy_id)
+        .subquery()
+    )
+    # Unclaimed discrepancies are all at risk, so they're summed in the database.
+    for category, count, gross in db.execute(
+        select(Discrepancy.category, func.count(), func.sum(func.abs(Discrepancy.difference)))
+        .outerjoin(governing, governing.c.discrepancy_id == Discrepancy.id)
+        .where(Discrepancy.state == DiscrepancyState.OPEN, governing.c.discrepancy_id.is_(None))
+        .group_by(Discrepancy.category)
+    ):
+        b = bucket(category.value)
+        b["count"] += count
+        b["gross"] += gross or ZERO
+        b["at_risk"] += gross or ZERO
+    # Claimed ones are few, so each is worked out here, by split_exposure.
+    for category, difference, status, claimed, recovered in db.execute(
+        select(
+            Discrepancy.category,
+            Discrepancy.difference,
+            governing.c.status,
+            governing.c.claimed,
+            governing.c.recovered_amount,
+        )
+        .join(governing, governing.c.discrepancy_id == Discrepancy.id)
+        .where(Discrepancy.state == DiscrepancyState.OPEN)
+    ):
+        current = abs(difference or ZERO)
+        at_risk, written_off = split_exposure(
+            current, claimed or ZERO, recovered or ZERO, ClaimStatus(status)
+        )
+        b = bucket(category.value)
+        b["count"] += 1
+        b["gross"] += current
+        b["at_risk"] += at_risk
+        b["written_off"] += written_off
+        b["recovered"] += recovered or ZERO
+    return out
+
+
+def _paise(amount: Decimal | None) -> int | None:
+    return None if amount is None else int(amount * 100)
+
+
+def _only_partner_freight(stream: dict, discrepancy: Discrepancy) -> dict:
+    """The freight stream limited to the claimed courier's own invoice lines.
+
+    An order can be billed by more than one courier, such as a forward shipment by one and
+    the RTO by another. A claim goes to one courier, so another's invoice numbers and
+    amounts must not appear in it. The stream's totals cover every courier, so they're
+    replaced by this discrepancy's own figures.
+    """
+    partner_id = discrepancy.counterparty_partner_id
+    return {
+        **stream,
+        "lines": [line for line in stream.get("lines", []) if line.get("partner_id") == partner_id],
+        "expected_paise": _paise(discrepancy.expected),
+        "actual_paise": _paise(discrepancy.actual),
+    }
+
+
 def _evidence(db: Session, discrepancy: Discrepancy) -> dict:
     order = db.get(Order, discrepancy.order_id)
     channel = db.get(SalesChannel, order.channel_id)
@@ -80,6 +202,8 @@ def _evidence(db: Session, discrepancy: Discrepancy) -> dict:
         if result
         else {}
     )
+    if discrepancy.category == DiscrepancyCategory.FREIGHT_OVERCHARGED:
+        stream = _only_partner_freight(stream, discrepancy)
     records = (
         stream.get("records")
         or stream.get("lines")
@@ -112,7 +236,9 @@ def _evidence(db: Session, discrepancy: Discrepancy) -> dict:
 
 
 def eligible(db: Session) -> list[Discrepancy]:
-    has_claim = select(Claim.discrepancy_id).where(Claim.status.in_(ACTIVE))
+    # A recovered claim blocks a new one too, as the database index does. Only a rejected
+    # or written-off claim frees the discrepancy to be claimed again.
+    has_claim = select(Claim.discrepancy_id).where(Claim.status.in_(BLOCKS_NEW_CLAIM))
     return db.scalars(
         select(Discrepancy)
         .where(
@@ -141,7 +267,7 @@ def create_claims(
             409,
             "not_claimable",
             "Some selected discrepancies can't be claimed: they're resolved, need review, "
-            "or already have an active claim.",
+            "or already have a claim in progress or recovered.",
             {"discrepancy_ids": refused},
         )
     claims = []

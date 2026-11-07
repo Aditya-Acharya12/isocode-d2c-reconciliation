@@ -321,7 +321,13 @@ export default function ReconciliationPage() {
             <Metric
               label="Recovered so far"
               value={formatAmount(data.recovered_on_open)}
-              hint="On open discrepancies"
+              hint="Entered on claims, open discrepancies"
+            />
+            <Metric
+              label="Written off"
+              value={formatAmount(data.written_off)}
+              hint="Closed claims, not counted at risk"
+              testId="metric-written-off"
             />
           </MetricRow>
 

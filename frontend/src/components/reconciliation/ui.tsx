@@ -69,7 +69,7 @@ export function Money({ value, strong = false }: { value: string; strong?: boole
 
 export function MetricRow({ children }: { children: ReactNode }) {
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-md border p-4 sm:grid-cols-3 lg:grid-cols-6">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-md border p-4 sm:grid-cols-4 xl:grid-cols-7">
       {children}
     </dl>
   );

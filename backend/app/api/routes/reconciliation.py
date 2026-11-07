@@ -30,14 +30,15 @@ from app.models import (
     UploadedFile,
     User,
 )
-from app.models.enums import DiscrepancyState, JobKind, JobStatus, ReconStatus
+from app.models.enums import JobKind, JobStatus, ReconStatus
 from app.services.audit import record_audit
 from app.services.jobs import worker
-from app.services.reconciliation.claims import ACTIVE
+from app.services.reconciliation.claims import exposure_by_category
 from app.services.reconciliation.runner import TRANSACTION_TABLES
 
 router = APIRouter(tags=["reconciliation"])
 CASH = ("short_paid", "unpaid_past_due", "freight_overcharged")
+INVENTORY = ("return_not_received",)
 TAX_NOTE = (
     "Reconciliation estimates only, not tax advice. Leakage figures use the TCS and TDS that "
     "partners report, and the configured rates below only flag figures that look unusual. "
@@ -144,20 +145,26 @@ def summary(
             .group_by(ReconciliationResult.primary_status)
         ).all()
     )
+    exposure = exposure_by_category(db)
+
+    # amount is the shortfall the latest run sees. at_risk takes claims into account, and
+    # written_off is what closed claims stopped chasing (docs/architecture.md section 8).
+    def money(value: Decimal) -> str:
+        return str(value.quantize(Decimal("0.01")))
+
     open_by_category = {
-        category.value: {"count": count, "amount": str(-(amount or 0))}
-        for category, count, amount in db.execute(
-            select(Discrepancy.category, func.count(), func.sum(Discrepancy.difference))
-            .where(Discrepancy.state == DiscrepancyState.OPEN)
-            .group_by(Discrepancy.category)
-        ).all()
+        category: {
+            "count": b["count"],
+            "amount": money(b["gross"]),
+            "at_risk": money(b["at_risk"]),
+            "written_off": money(b["written_off"]),
+        }
+        for category, b in exposure.items()
     }
-    recovered = db.scalar(
-        select(func.coalesce(func.sum(Claim.recovered_amount), 0))
-        .join(Discrepancy, Discrepancy.id == Claim.discrepancy_id)
-        .where(Discrepancy.state == DiscrepancyState.OPEN, Claim.status.in_(ACTIVE))
-    ) or Decimal("0")
-    cash = sum(Decimal(open_by_category.get(c, {}).get("amount", "0")) for c in CASH)
+
+    def total(field: str, categories) -> str:
+        return money(sum((exposure[c][field] for c in categories if c in exposure), Decimal("0")))
+
     last = db.execute(
         select(ReconciliationRun, BackgroundJob)
         .join(BackgroundJob, BackgroundJob.id == ReconciliationRun.background_job_id)
@@ -175,9 +182,11 @@ def summary(
         "reconciled": statuses.get(ReconStatus.SETTLED, 0),
         "open_discrepancies": sum(v["count"] for v in open_by_category.values()),
         "open_by_category": open_by_category,
-        "money_at_risk": str(cash - recovered),
-        "recovered_on_open": str(recovered),
-        "inventory_at_risk": open_by_category.get("return_not_received", {}).get("amount", "0"),
+        "money_at_risk": total("at_risk", CASH),
+        "recovered_on_open": total("recovered", CASH),
+        "written_off": total("written_off", CASH),
+        "inventory_at_risk": total("at_risk", INVENTORY),
+        "inventory_written_off": total("written_off", INVENTORY),
         "unmatched_records": unmatched,
         "last_run": _run_out(*last) if last else None,
     }

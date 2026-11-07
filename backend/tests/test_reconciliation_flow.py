@@ -3,6 +3,8 @@ reconciled by the real job, and read back through the API. Then claims on top.""
 
 import csv
 import io
+import json
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -449,6 +451,186 @@ def test_recovery_reduces_money_at_risk(finance_client, reconciled):
     finance_client.post(url, json={"to_status": "submitted"})
     finance_client.post(url, json={"to_status": "partially_recovered", "recovered_amount": "20.00"})
     assert finance_client.get("/api/v1/reconciliation/summary").json()["money_at_risk"] == "1472.00"
+
+
+def _step(client, claim_id: int, to: str, **body) -> dict:
+    response = client.post(f"/api/v1/claims/{claim_id}/transitions", json={"to_status": to, **body})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _money(client) -> dict[str, Decimal]:
+    summary = client.get("/api/v1/reconciliation/summary").json()
+    figures = ("money_at_risk", "written_off", "recovered_on_open", "inventory_at_risk")
+    return {key: Decimal(summary[key]) for key in figures}
+
+
+def _marketplace_discrepancy(db) -> int:
+    return db.scalar(select(Discrepancy.id).where(Discrepancy.category == "short_paid"))
+
+
+def _top_up(client, world, ref: str, amount: str) -> None:
+    content = (
+        "Settlement ID,Sub Order ID,Net Paid,Settlement Date,TCS,TDS\n"
+        f"{ref},ORD-M-88120,{amount},25/10/2026,0,0\n"
+    ).encode()
+    imported(
+        client, content, f"{ref}.csv", "settlement", partner_id=world["partners"]["Marketplace 1"]
+    )
+
+
+def test_a_fully_recovered_claim_never_returns_to_money_at_risk(finance_client, reconciled, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "partially_recovered", recovered_amount="20.00")
+    assert _money(finance_client)["money_at_risk"] == Decimal("1472.00")
+    _step(finance_client, claim_id, "recovered")
+    money = _money(finance_client)
+    assert money["money_at_risk"] == Decimal("1455.00")  # 1,409 + 46: the 37 is recovered
+    assert money["written_off"] == 0
+    # The data doesn't show the recovery, so the discrepancy stays open. A later run must
+    # not put it back at risk.
+    run(finance_client)
+    assert _money(finance_client)["money_at_risk"] == Decimal("1455.00")
+
+
+def test_a_recovered_claim_is_not_offered_or_accepted_again(finance_client, reconciled, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "recovered")
+    groups = {g["partner"] for g in finance_client.get("/api/v1/claims/eligible").json()}
+    assert "Marketplace 1" not in groups
+    discrepancy = _marketplace_discrepancy(db)
+    response = finance_client.post("/api/v1/claims", json={"discrepancy_ids": [discrepancy]})
+    assert response.status_code == 409
+    # Refused by the eligibility check with a clear reason, not by the database index.
+    assert response.json()["code"] == "not_claimable"
+    assert response.json()["details"] == {"discrepancy_ids": [discrepancy]}
+
+
+def test_a_batch_with_one_ineligible_discrepancy_creates_nothing(finance_client, reconciled, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "recovered")
+    freight = db.scalar(select(Discrepancy.id).where(Discrepancy.category == "freight_overcharged"))
+    blocked = _marketplace_discrepancy(db)
+    response = finance_client.post("/api/v1/claims", json={"discrepancy_ids": [freight, blocked]})
+    assert response.status_code == 409
+    assert response.json()["details"] == {"discrepancy_ids": [blocked]}
+    assert db.scalar(select(func.count()).select_from(Claim)) == 1  # only the first claim
+    # The eligible one can still be claimed on its own, once.
+    assert (
+        finance_client.post("/api/v1/claims", json={"discrepancy_ids": [freight]}).status_code
+        == 201
+    )
+    again = finance_client.post("/api/v1/claims", json={"discrepancy_ids": [freight]})
+    assert again.json()["code"] == "not_claimable"
+
+
+def test_a_written_off_claim_is_reported_apart_from_money_at_risk(finance_client, reconciled, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "partially_recovered", recovered_amount="20.00")
+    _step(finance_client, claim_id, "written_off", note="Partner won't pay the rest")
+    money = _money(finance_client)
+    assert money["money_at_risk"] == Decimal("1455.00")
+    assert money["written_off"] == Decimal("17.00")  # 37 claimed, 20 recovered
+    # A written-off discrepancy may be claimed afresh, and is then at risk again.
+    groups = {g["partner"] for g in finance_client.get("/api/v1/claims/eligible").json()}
+    assert "Marketplace 1" in groups
+    new = finance_client.post(
+        "/api/v1/claims", json={"discrepancy_ids": [_marketplace_discrepancy(db)]}
+    )
+    assert new.status_code == 201, new.text
+    money = _money(finance_client)
+    assert (money["money_at_risk"], money["written_off"]) == (Decimal("1492.00"), 0)
+
+
+def test_a_rejected_claim_leaves_the_amount_at_risk(finance_client, reconciled, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "rejected", note="Partner disputes it")
+    money = _money(finance_client)
+    assert (money["money_at_risk"], money["written_off"]) == (Decimal("1492.00"), 0)
+    new = finance_client.post(
+        "/api/v1/claims", json={"discrepancy_ids": [_marketplace_discrepancy(db)]}
+    )
+    assert new.status_code == 201, new.text
+    assert _money(finance_client)["money_at_risk"] == Decimal("1492.00")
+    open_claims = db.scalar(
+        select(func.count()).select_from(Claim).where(Claim.status != "rejected")
+    )
+    assert open_claims == 1
+
+
+def test_a_recovery_that_reaches_the_data_is_counted_once(finance_client, reconciled, world, db):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    _step(finance_client, claim_id, "partially_recovered", recovered_amount="20.00")
+    assert _money(finance_client)["money_at_risk"] == Decimal("1472.00")
+
+    # The same ₹20 then arrives in a settlement file. The shortfall drops to 17, and the
+    # hand-entered 20 must not be subtracted again, which would give 1,452.
+    _top_up(finance_client, world, "SET-2", "20.00")
+    run(finance_client)
+    db.expire_all()
+    assert db.get(Discrepancy, _marketplace_discrepancy(db)).difference == Decimal("-17.00")
+    assert _money(finance_client)["money_at_risk"] == Decimal("1472.00")
+
+    # Finance marks it recovered, then a further ₹5 reaches the data. Still nothing at risk
+    # on this order, and never a negative contribution.
+    _step(finance_client, claim_id, "recovered")
+    assert _money(finance_client)["money_at_risk"] == Decimal("1455.00")
+    _top_up(finance_client, world, "SET-3", "5.00")
+    run(finance_client)
+    money = _money(finance_client)
+    assert money["money_at_risk"] == Decimal("1455.00")
+    assert all(value >= 0 for value in money.values())
+
+
+def test_a_freight_claim_shows_only_that_couriers_invoices(finance_client, reconciled, world, db):
+    other = Partner(
+        name="Courier Aggregator B",
+        type=PartnerType.COURIER,
+        settlement_terms_days=10,
+        return_grace_days=15,
+    )
+    db.add(other)
+    db.commit()
+    # Another courier billed the same shipment's RTO leg.
+    other_freight = (
+        b"Invoice No,AWB No,Total Charge,Invoice Date,Shipment Type,Wt_Slab\n"
+        b"INV-B-SECRET,AWB204377,133.33,16/10/2026,RTO,0.5kg\n"
+    )
+    imported(finance_client, other_freight, "freight-b.csv", "freight_invoice", partner_id=other.id)
+    run(finance_client)
+    order = rows(finance_client)["ORD-W-204377"]
+    assert order["status"] == "freight_overcharged"
+    # The order's own explanation does show both couriers' lines.
+    detail = finance_client.get(f"/api/v1/reconciliation/orders/{order['order_id']}").json()
+    assert "INV-B-SECRET" in json.dumps(detail)
+
+    freight = db.scalar(select(Discrepancy.id).where(Discrepancy.category == "freight_overcharged"))
+    created = finance_client.post("/api/v1/claims", json={"discrepancy_ids": [freight]})
+    assert created.status_code == 201, created.text
+    claim = created.json()[0]
+    assert (claim["partner"], claim["difference"]) == ("Courier Aggregator A", "-46.00")
+
+    evidence = finance_client.get(f"/api/v1/claims/{claim['id']}").json()
+    courier_a = world["partners"]["Courier Aggregator A"]
+    assert evidence["evidence"]["records"]
+    assert all(r["partner_id"] == courier_a for r in evidence["evidence"]["records"])
+    assert "INV-B-SECRET" not in json.dumps(evidence)
+    assert "13333" not in json.dumps(evidence)
+
+    for url in (
+        f"/api/v1/claims/{claim['id']}/evidence.csv",
+        f"/api/v1/claims/evidence.csv?partner_id={courier_a}",
+    ):
+        exported = finance_client.get(url).text
+        assert "INV-1" in exported
+        assert "INV-B-SECRET" not in exported
+        assert "133.33" not in exported
 
 
 def test_the_co_founder_can_review_but_not_act(finance_client, founder_client, reconciled):

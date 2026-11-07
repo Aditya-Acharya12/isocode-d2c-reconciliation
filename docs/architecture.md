@@ -294,9 +294,10 @@ Each stream's record lists the source lines with their file and row, which is wh
 
 - A discrepancy that still exists has its amount and `last_seen_run_id` updated.
 - A discrepancy that no longer exists, such as when a late payment arrives, becomes `resolved`. If it has an open claim, the claim page warns about it, and the claim isn't closed automatically. A discrepancy that comes back is reopened.
-- **Money at risk** = Σ |difference| of open cash discrepancies (unpaid, short-paid, freight overcharged), minus amounts already recovered on their active claims.
-- **Stock at risk** = Σ order value of open "return not received" discrepancies. It's shown separately, because it's goods, not cash.
-- **Recovered** = Σ `recovered_amount` on claims, recorded by a person. A claim only counts as recovered when finance confirms it.
+- **Money at risk** = the part of open cash discrepancies (unpaid, short-paid, freight overcharged) still at risk once their claims are counted. Section 8 gives the exact rule.
+- **Stock at risk** = the same, for open "return not received" discrepancies, valued at order value. It's shown separately, because it's goods, not cash.
+- **Written off** = what closed claims stopped chasing. It's reported separately, never inside money at risk.
+- **Recovered so far** = Σ `recovered_amount` on the claims of open cash discrepancies, recorded by a person. A claim only counts as recovered when finance confirms it.
 - **Reconciled** = orders whose primary status is Settled.
 
 ### Sample rows, as the engine produces them (tested)
@@ -313,9 +314,41 @@ The rates are inferred from the sample and need confirming with the real client 
 
 **Status flow:** `draft → submitted → acknowledged → partially_recovered → recovered`. `rejected` and `written_off` are the other terminal states. Each transition is checked on the server (`services/reconciliation/claims.py`), logged in `claim_events` and audited.
 
-- **One claim per discrepancy**, created in bulk from the "Ready to claim" list, which groups open cash and return discrepancies by the partner who owes them. A discrepancy with an active claim, or one that's been resolved, can't be claimed.
+- **One claim per discrepancy**, created in bulk from the "Ready to claim" list, which groups open cash and return discrepancies by the partner who owes them. A resolved discrepancy can't be claimed, and nor can one whose claim is in progress (draft to partly recovered) or recovered. Only a rejected or written-off claim frees the discrepancy for a fresh claim. This is the same rule as the partial unique index on `claims.discrepancy_id`, so the list never offers something the database would refuse. A batch with any ineligible discrepancy creates nothing and names the ones refused.
 - **Evidence is snapshotted** into `claims.evidence` (JSONB, migration 0003) when the claim is created: the order, the stream's calculation and every supporting record with its source file and row. Later runs can't change what was filed.
 - Recovered amounts are running totals that can't decrease or exceed the claimed amount. Recovered defaults to the full amount. Rejected and written-off need a note.
+- **Freight evidence holds only the claimed courier's invoice lines.** An order can be billed by two couriers, such as a forward leg by one and the RTO by another, and one courier mustn't see the other's invoice numbers or amounts. The stream's totals are replaced by the discrepancy's own figures for the same reason. The order page still shows every line.
+
+**What's still at risk on an open discrepancy** (`split_exposure` in `services/reconciliation/claims.py`). The governing claim is the one blocking a new claim if there is one, otherwise the latest written-off one. A rejected claim never governs. With:
+
+- *current* = |difference| as the latest run sees it
+- *claimed* = |difference| when the claim was filed
+- *recovered* = the running total finance entered
+
+then:
+
+| | Formula |
+|---|---|
+| Recovery the data already shows | *in data* = max(0, *claimed* − *current*) |
+| Recovery entered but not yet in the data | *not in data* = max(0, *recovered* − *in data*) |
+| Outstanding | max(0, *current* − *not in data*) |
+
+| Governing claim | At risk | Written off |
+|---|---|---|
+| None, or rejected | *current* | 0 |
+| Draft, submitted, acknowledged, partly recovered | outstanding | 0 |
+| Recovered or written off | outstanding − written off | min(outstanding, *claimed* − *recovered*) |
+
+What this means in practice:
+
+- **A recovery is counted once.** If a recovery reaches the data, as a later settlement or remittance, the run already shows a smaller shortfall, and only the part the data doesn't yet show is subtracted. For example, a ₹37 claim with ₹20 entered leaves ₹17 at risk, and it's still ₹17 after a ₹20 payment is imported, not ₹−3.
+- **A fully recovered claim never puts money back at risk.** The discrepancy stays open while the data doesn't show the payment, but contributes nothing.
+- **A claim closed as recovered for less than it claimed** counts the rest as written off, since nothing more is being chased.
+- **Written off** never counts as money at risk, and is reported separately. Claiming the discrepancy again puts it back at risk.
+- **A shortfall that grows beyond a closed claim** stays at risk for the growth only.
+- No figure is ever negative, and at risk plus written off never exceeds what the run still sees.
+
+The summary also returns, per category, the gross shortfall (`amount`), `at_risk` and `written_off`. Stock at risk follows the same rule.
 - **Evidence export** is CSV, one file per claim or one per partner, with an order row and a row per supporting record. It neutralises spreadsheet formula injection in text cells starting with `=`, `+`, `-`, `@`, tab or carriage return, because partner data ends up in a file someone will open in Excel. Numbers are left as numbers. XLSX was planned but CSV opens in the same tools and was enough for the deadline.
 
 ## 9. API outline

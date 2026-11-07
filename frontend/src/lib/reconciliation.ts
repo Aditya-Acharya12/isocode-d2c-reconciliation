@@ -103,10 +103,15 @@ export interface Summary {
   statuses: Record<ReconStatus, number>;
   reconciled: number;
   open_discrepancies: number;
-  open_by_category: Record<string, { count: number; amount: string }>;
+  open_by_category: Record<
+    string,
+    { count: number; amount: string; at_risk: string; written_off: string }
+  >;
   money_at_risk: string;
   recovered_on_open: string;
+  written_off: string;
   inventory_at_risk: string;
+  inventory_written_off: string;
   unmatched_records: Record<string, number>;
   last_run: RunInfo | null;
 }
