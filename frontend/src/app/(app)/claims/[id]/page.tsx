@@ -86,7 +86,8 @@ function TransitionForm({ claim }: { claim: ClaimDetail }) {
         method: "POST",
         body: {
           to_status: to,
-          recovered_amount: amount ? amount : to === "partially_recovered" ? undefined : null,
+          // Recovered always means the full claimed amount, so it never sends one.
+          recovered_amount: needsAmount && amount ? amount : null,
           note: note || null,
         },
       }),
@@ -121,11 +122,15 @@ function TransitionForm({ claim }: { claim: ClaimDetail }) {
           ))}
         </NativeSelect>
       </div>
-      {(needsAmount || to === "recovered") && (
+      {to === "recovered" && (
+        <p className="text-sm text-muted-foreground">
+          Records the full {formatAmount(claim.claimed)} as recovered. If the partner paid less, use
+          Partly recovered, then Written off for the rest.
+        </p>
+      )}
+      {needsAmount && (
         <div className="space-y-1">
-          <Label htmlFor="recovered">
-            Total recovered so far {to === "recovered" ? "(leave empty for the full amount)" : ""}
-          </Label>
+          <Label htmlFor="recovered">Total recovered so far</Label>
           <Input
             id="recovered"
             inputMode="decimal"

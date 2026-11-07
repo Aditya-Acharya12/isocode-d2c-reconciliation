@@ -494,6 +494,49 @@ def test_a_fully_recovered_claim_never_returns_to_money_at_risk(finance_client, 
     assert _money(finance_client)["money_at_risk"] == Decimal("1455.00")
 
 
+def test_recovered_means_the_full_amount_and_only_a_write_off_closes_the_rest(
+    finance_client, reconciled, db
+):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    url = f"/api/v1/claims/{claim_id}/transitions"
+    _step(finance_client, claim_id, "submitted")
+    # Less than the ₹37 claimed can't be recorded as recovered.
+    short = finance_client.post(url, json={"to_status": "recovered", "recovered_amount": "30.00"})
+    assert short.status_code == 422
+    assert short.json()["code"] == "recovered_must_be_full"
+    # It's recorded as partly recovered instead, and the balance stays at risk.
+    _step(finance_client, claim_id, "partially_recovered", recovered_amount="30.00")
+    money = _money(finance_client)
+    assert (money["money_at_risk"], money["written_off"]) == (Decimal("1462.00"), 0)
+    # Partly recovered can't reach the full amount either: that's Recovered.
+    full_as_partial = finance_client.post(
+        url, json={"to_status": "partially_recovered", "recovered_amount": "37.00"}
+    )
+    assert full_as_partial.json()["code"] == "use_recovered"
+    # Only an explicit write-off moves the ₹7 balance out of money at risk.
+    _step(finance_client, claim_id, "written_off", note="Partner settled for ₹30")
+    money = _money(finance_client)
+    assert (money["money_at_risk"], money["written_off"]) == (Decimal("1455.00"), Decimal("7.00"))
+    # Every accepted step is in the history and the audit log. Refused attempts add nothing.
+    events = db.scalars(
+        select(ClaimEvent.to_status).where(ClaimEvent.claim_id == claim_id).order_by(ClaimEvent.id)
+    ).all()
+    assert events == ["draft", "submitted", "partially_recovered", "written_off"]
+    audited = db.scalars(
+        select(AuditLog.action).where(AuditLog.entity_type == "claim").order_by(AuditLog.id)
+    ).all()
+    assert audited == ["claim.create", "claim.transition", "claim.transition", "claim.transition"]
+
+
+def test_recovered_with_the_exact_full_amount_is_accepted(finance_client, reconciled):
+    claim_id = _claim_marketplace(finance_client)["id"]
+    _step(finance_client, claim_id, "submitted")
+    done = _step(finance_client, claim_id, "recovered", recovered_amount="37.00")
+    assert (done["status"], done["recovered"]) == ("recovered", "37.00")
+    money = _money(finance_client)
+    assert (money["money_at_risk"], money["written_off"]) == (Decimal("1455.00"), 0)
+
+
 def test_a_recovered_claim_is_not_offered_or_accepted_again(finance_client, reconciled, db):
     claim_id = _claim_marketplace(finance_client)["id"]
     _step(finance_client, claim_id, "submitted")

@@ -31,8 +31,9 @@ D = Decimal
         # Fully recovered: nothing at risk, whether or not the data shows it yet.
         ("37.00", "37.00", "37.00", ClaimStatus.RECOVERED, ("0", "0")),
         ("7.00", "37.00", "37.00", ClaimStatus.RECOVERED, ("0", "0")),
-        # Closed as recovered for less than claimed: the rest is written off.
-        ("37.00", "37.00", "30.00", ClaimStatus.RECOVERED, ("0", "7.00")),
+        # Recovered always means the full claim (the transition enforces it). Even if an
+        # older row said otherwise, nothing is written off without an explicit write-off.
+        ("37.00", "37.00", "30.00", ClaimStatus.RECOVERED, ("7.00", "0")),
         # Written off: out of money at risk, reported separately.
         ("37.00", "37.00", "0", ClaimStatus.WRITTEN_OFF, ("0", "37.00")),
         ("37.00", "37.00", "20.00", ClaimStatus.WRITTEN_OFF, ("0", "17.00")),

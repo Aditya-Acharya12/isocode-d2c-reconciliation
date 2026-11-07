@@ -36,8 +36,6 @@ TERMINAL = (ClaimStatus.RECOVERED, ClaimStatus.REJECTED, ClaimStatus.WRITTEN_OFF
 # A discrepancy with a claim in one of these can't be claimed again. This must match the
 # partial unique index on claims.discrepancy_id, which excludes rejected and written off.
 BLOCKS_NEW_CLAIM = (*ACTIVE, ClaimStatus.RECOVERED)
-# A claim closed with no further recovery expected.
-CLOSED = (ClaimStatus.RECOVERED, ClaimStatus.WRITTEN_OFF)
 TRANSITIONS: dict[ClaimStatus, tuple[ClaimStatus, ...]] = {
     ClaimStatus.DRAFT: (ClaimStatus.SUBMITTED, ClaimStatus.WRITTEN_OFF),
     ClaimStatus.SUBMITTED: (
@@ -98,10 +96,12 @@ def split_exposure(
     already_in_data = max(claimed - current, ZERO)
     not_yet_in_data = max(recovered - already_in_data, ZERO)
     outstanding = max(current - not_yet_in_data, ZERO)
-    if status not in CLOSED:
+    if status != ClaimStatus.WRITTEN_OFF:
+        # A recovered claim always recovered the full claim, so this is zero unless the
+        # shortfall has since grown beyond what was claimed.
         return outstanding, ZERO
-    # A closed claim stops the chase for what it claimed. Anything still outstanding within
-    # that amount is written off. A shortfall that has grown beyond the claim stays at risk.
+    # Only an explicit write-off stops the chase. What's still outstanding within the claimed
+    # amount is written off. A shortfall that has grown beyond the claim stays at risk.
     written_off = min(outstanding, max(claimed - recovered, ZERO))
     return outstanding - written_off, written_off
 
@@ -343,8 +343,17 @@ def transition(
         )
     amount = claimed_amount(claim)
     if to_status == ClaimStatus.RECOVERED:
-        recovered = amount if recovered is None else recovered
-    if to_status in (ClaimStatus.PARTIALLY_RECOVERED, ClaimStatus.RECOVERED):
+        # Recovered means the whole claim came back. A smaller final amount is recorded as
+        # partly recovered, and the rest is closed only by an explicit write-off.
+        if recovered is not None and recovered != amount:
+            raise AppError(
+                422,
+                "recovered_must_be_full",
+                f"Recovered means the full {rupees(int(amount * 100))} claimed. Record a smaller "
+                "amount as partly recovered, then write off the rest.",
+            )
+        recovered = amount
+    if to_status == ClaimStatus.PARTIALLY_RECOVERED:
         if recovered is None:
             raise AppError(422, "amount_required", "Enter the total amount recovered so far.")
         if recovered < claim.recovered_amount:
@@ -359,7 +368,7 @@ def transition(
                 "amount_too_large",
                 f"That's more than the {rupees(int(amount * 100))} claimed.",
             )
-        if to_status == ClaimStatus.PARTIALLY_RECOVERED and recovered >= amount:
+        if recovered >= amount:
             raise AppError(
                 422, "use_recovered", "That's the full amount. Mark it recovered instead."
             )
