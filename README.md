@@ -4,7 +4,7 @@ Finds money a D2C brand is owed, order by order, across marketplace settlements,
 
 Built as a take-home for Isocode. The client is a Bengaluru home textiles brand with about 30,000 orders a month, sold through its website, three marketplaces and two quick-commerce platforms, and shipped through two courier aggregators.
 
-> **Status: Milestone 2 (ingestion) built and tested locally, not yet deployed.** Sign-in, roles, partners, the audit log, and the full import workflow work: upload, mapping review, validation, import and history. Reconciliation, claims and the dashboard aren't built yet. All data is synthetic.
+> **Status: Milestone 3 (reconciliation and claims) built and tested locally, not yet deployed.** Milestone 2 (ingestion) is deployed. Working end to end: sign-in and roles, partners, the audit log, the import workflow, deterministic reconciliation with an explanation for every order, returns tracking, claims with CSV evidence export, and a summary of tax withheld. The dashboard polish of Milestone 4 isn't done yet. All data is synthetic.
 
 ## Scope
 
@@ -82,7 +82,7 @@ npx playwright test
 
 ## Performance
 
-The target is 100,000 rows in under a minute. No benchmark has been run yet, because the import pipeline arrives in Milestone 2. Local and deployed results will be published here separately, as measured. Passing locally doesn't mean the free hosting meets the target.
+The target is 100,000 rows in under a minute. Locally, every CSV import met it, and one of two XLSX imports didn't. Reconciling 100,000 orders takes about two minutes the first time and 75 seconds after that. See [docs/benchmarks.md](docs/benchmarks.md) for the figures and their caveats. Deployed performance on the free tiers hasn't been measured.
 
 ## Data
 

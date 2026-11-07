@@ -13,6 +13,8 @@ const ALLOW_WRITES = process.env.E2E_ALLOW_WRITES === "true";
 const RUN = Date.now();
 let counter = 0;
 const unique = (prefix: string) => `${prefix}${RUN}-${++counter}`;
+// A header of its own each run, so a mapping saved by an earlier run never matches.
+const NOTES = `Internal Notes ${RUN}`;
 
 test.skip(!ALLOW_WRITES, "Set E2E_ALLOW_WRITES=true to run tests that create records.");
 
@@ -63,7 +65,7 @@ test.describe("finance executive", () => {
     const csv = [
       "Partner export",
       "",
-      "Reference Thing,Order Date,Order Value,Payment Mode,Status,AWB No,Internal Notes",
+      `Reference Thing,Order Date,Order Value,Payment Mode,Status,AWB No,${NOTES}`,
       `${first},01/10/2026,"₹1,499.00",COD,Delivered,AWB-${first},fine`,
       `${bad},31/02/2026,100,COD,Delivered,AWB-${bad},bad date`,
       `${repeated},02/10/2026,899.50,Prepaid,RTO,AWB-${repeated},fine`,
@@ -83,7 +85,7 @@ test.describe("finance executive", () => {
     await expect(order).toHaveValue("");
     await expect(page.getByTestId("mapping-blockers")).toContainText("Map a column to Order ID.");
     await expect(page.getByRole("button", { name: "Validate these rows" })).toBeDisabled();
-    await expect(page.getByRole("combobox", { name: "Import Internal Notes as" })).toHaveValue("");
+    await expect(page.getByRole("combobox", { name: `Import ${NOTES} as` })).toHaveValue("");
 
     // A person maps it by hand. Confident suggestions are visible and already selected.
     await order.selectOption({ label: "Order ID (required)" });
@@ -121,12 +123,12 @@ test.describe("finance executive", () => {
     );
 
     // Changing the mapping makes the result stale, and it can't be acted on.
-    await page.getByRole("combobox", { name: "Import Internal Notes as" }).selectOption({
+    await page.getByRole("combobox", { name: `Import ${NOTES} as` }).selectOption({
       label: "Zone",
     });
     await expect(page.getByTestId("stale-validation")).toBeVisible();
     await expect(page.getByRole("button", { name: "Approve and import" })).toHaveCount(0);
-    await page.getByRole("combobox", { name: "Import Internal Notes as" }).selectOption({
+    await page.getByRole("combobox", { name: `Import ${NOTES} as` }).selectOption({
       label: "Don't import",
     });
 

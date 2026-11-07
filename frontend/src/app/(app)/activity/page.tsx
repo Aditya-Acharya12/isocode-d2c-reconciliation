@@ -34,6 +34,10 @@ const ACTION_LABELS: Record<string, string> = {
   "import.retry": "Retried an import",
   "import.complete": "Import finished",
   "import.failed": "Import failed",
+  "reconciliation.start": "Started reconciliation",
+  "reconciliation.run": "Reconciliation finished",
+  "claim.create": "Created a claim",
+  "claim.transition": "Updated a claim",
 };
 
 export default function ActivityPage() {

@@ -48,7 +48,7 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 
 ### Milestone 2: Ingestion (finish by end of 7 November)
 
-**Status: built and tested locally, awaiting review before deployment. See [benchmarks.md](benchmarks.md) for measured performance.**
+**Status: deployed to Render and Vercel, and verified in production with a controlled ISO-TEST import. See [benchmarks.md](benchmarks.md) for measured performance.**
 
 **Build**
 - CSV and XLSX upload, file checks, compressed storage, duplicate detection
@@ -70,6 +70,12 @@ Each milestone ends with a running app and a working screen. The UI grows alongs
 **Checkpoint:** if the local benchmark is over 60 seconds, fix that before starting Milestone 3, as it may affect the design.
 
 ### Milestone 3: Business engine (finish by end of 8 November)
+
+**Status: built and tested locally, awaiting review before deployment.** Changes from the plan:
+- Evidence export is CSV (per claim and per partner), not XLSX.
+- Rate cards are read-only in the UI. The demo card is added by the seed script.
+- Records that don't link to exactly one order are listed with a reason. The match review queue wasn't built.
+- Added a returns screen and a tax-withheld summary, which the brief asks for.
 
 **Build**
 - Rate cards with effective dates and rule lookup

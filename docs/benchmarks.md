@@ -1,4 +1,4 @@
-# Ingestion benchmark
+# Benchmarks
 
 The target is 100,000 rows in under a minute locally. This records what was actually measured, including where the target was missed.
 
@@ -56,9 +56,26 @@ Parsing and validating take much less, so the pandas and `COPY` design isn't the
 - **Storage:** 100,000 rows plus the stored file take roughly 40 MB in Postgres. Neon Free allows 1 GB per project, so large benchmark files shouldn't be loaded into the demo database.
 - **The target isn't a guarantee.** A smaller machine, or a table with many more existing rows, will be slower.
 
+## Reconciliation at 100,000 orders
+
+Measured on 7 November 2026, on the same machine and with the same caveat about background load. After importing the six CSV files above, the benchmark reconciles everything with the demo rate card, through the real job runner. That's 100,000 orders with about 99,500 settlement lines, COD remittances, freight lines, returns and warehouse receipts each.
+
+The brief sets no target for reconciliation. These figures are for capacity planning.
+
+| Run | Total | Link | Load | Evaluate | Save results | Save discrepancies | Peak memory |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| First run, linking 500,000 records | **122.5 s** | 48.8 | 14.2 | 15.1 | 30.5 | 13.4 | 364 MB |
+| Second run, same data | **75.0 s** | 8.2 | 14.4 | 14.8 | 31.5 | 5.9 | 219 MB |
+
+- The generated amounts are random, so almost every order is an exception (51% Needs review, 48% Freight overcharged). That's the most work for the engine. Real data would mostly settle.
+- **Memory stays flat** because orders are evaluated 5,000 at a time. Before that change, a 20,000-order run already peaked at 422 MB. Peak memory includes about 145 MB the process holds before the run starts.
+- **Linking is mostly a one-time cost.** A later run only fills links that are still empty.
+- **Storage.** Result rows average about 1.5 KB, mostly the explanation, so 100,000 orders take about 175 MB live. Only the current run's rows are kept. The previous run's rows wait as dead rows until autovacuum, so allow about twice that. With all six imported files, the scratch database reached 778 MB. **That's more than the Neon free plan allows, so 100,000 orders with every partner file isn't a free-tier workload.**
+- Full figures are in [`backend/benchmarks/results/reconciliation_100000.json`](../backend/benchmarks/results/reconciliation_100000.json). Its import figures come from the same run, which skipped XLSX. The recorded ingestion results above are unchanged.
+
 ## Reproduce it
 
-Pause OneDrive first, or any other heavy background process, to get a clean figure.
+Pause OneDrive first, or any other heavy background process, to get a clean figure. Add `--skip-reconcile` to measure imports only.
 
 ```powershell
 docker compose up -d --wait

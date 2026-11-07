@@ -25,7 +25,19 @@ The sample rows fit simple percentages when rounded to the nearest rupee:
 | ORD-M-88120 | 1,199 × 75% = 899.25 | 899 | 899 |
 | ORD-W-204377 | 2,398 × 4% = 95.92 | 96 | 96 |
 
-Three points can't establish a formula. These are demo values in a **configurable** rate card, and no percentage is hardcoded. The engine supports percentages and fixed amounts, because ₹96 could just as easily be a flat charge.
+Three points can't establish a formula. These are demo values in a **configurable** rate card, and no percentage is hardcoded. The engine supports percentages and fixed amounts, because ₹96 could just as easily be a flat charge, and that's how the demo card models it: a flat ₹96 RTO freight charge for Courier Aggregator A's 0.5 kg slab (A4).
+
+The demo card ("Demo rate card" v1, effective 1 January 2026, added by the seed script) also needs values the samples don't imply. All of these are invented:
+
+| Rule | Demo value |
+|---|---|
+| Website COD, delivered | 6%, remitted by the order's courier |
+| Website prepaid, delivered | 2%, paid by the payment gateway |
+| Marketplaces 1–3, delivered | 25%, paid by the marketplace |
+| Quick commerce 1–2, delivered | 18%, paid by the platform |
+| Any channel, RTO | Nothing expected in the settlement |
+| Forward freight, Couriers A and B | ₹45 / ₹60 / ₹90 / ₹150 for 0.5 / 1 / 2 / 5 kg, plus 1.5% COD charge, minimum ₹30 |
+| RTO freight, Couriers A and B | ₹96 / ₹110 / ₹150 / ₹220 |
 
 **Confirm:** the actual rate cards for every partner.
 
@@ -132,6 +144,30 @@ Valid rows load and invalid rows are reported, instead of rejecting a whole file
 
 ### A22. Data sent to the AI provider
 Only headers and masked samples are sent. Secondary sources say the Gemini free tier may use inputs for training and that paid tiers don't. Synthetic demo data is fine on the free tier, but **real client data needs a paid tier** and a review of Google's current terms.
+
+## Reconciliation and claims
+
+### A32. Who pays is part of the rate rule
+Each settlement rule names the partner that pays. A rule with no payer means the order's courier, paid through COD remittances. Money that arrives by another route, such as a settlement for a COD order, or from another partner, goes to Needs review instead of being counted.
+
+**Confirm:** how each channel's money actually reaches the brand.
+
+### A33. Records link only when exactly one order matches
+Records link by exact order ID, then a normalised order ID (case, spaces and punctuation ignored), then tracking ID. A partner tied to a sales channel only links to that channel's orders. A record matching no order, or several, stays unlinked and is listed, outside every total. A link, once made, is never changed by a later run.
+
+### A34. A missing return is judged on the warehouse scan
+A return is received only when the warehouse receipt file shows it. The courier's return status alone isn't enough, because a courier saying "delivered back" is exactly what this check doubts.
+
+### A35. One claim per discrepancy
+A claim covers one discrepancy, so one order and one partner. Claims are created in bulk and exported per partner, which gives the partner one file covering many orders. Only cash and missing-return discrepancies can be claimed. Needs review isn't a claim.
+
+**Confirm:** whether partners want one claim reference per batch instead.
+
+### A36. Recovery is entered by hand
+Recovered amounts are typed in by finance as running totals. They aren't matched to a later settlement or credit note.
+
+### A37. Tax figures are summarised, not reconciled
+The tax view totals the TCS and TDS partners report and counts lines with no tax reported. It doesn't compute what should have been withheld, because rates are reference data only (A10).
 
 ## Performance
 

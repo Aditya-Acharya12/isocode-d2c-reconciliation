@@ -24,7 +24,11 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Overview", permission: "view_workspace" },
   { href: "/imports", label: "Imports", permission: "view_workspace" },
+  { href: "/reconciliation", label: "Reconciliation", permission: "view_workspace" },
+  { href: "/returns", label: "Returns", permission: "view_workspace" },
+  { href: "/claims", label: "Claims", permission: "view_workspace" },
   { href: "/settings/mappings", label: "Saved mappings", permission: "view_workspace" },
+  { href: "/settings/rate-cards", label: "Rate cards", permission: "view_config" },
   { href: "/settings/partners", label: "Partners", permission: "view_config" },
   { href: "/activity", label: "Audit log", permission: "view_all_audit" },
   { href: "/activity", label: "My activity", permission: "view_own_audit" },

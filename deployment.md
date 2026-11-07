@@ -82,11 +82,18 @@ Pushing to `main` redeploys Render and Vercel. Migrations run automatically at s
 
 **Rolling back:** don't use `alembic downgrade` on real data. Downgrading `0002` deletes imported order data, and refuses to run if records depend on a warehouse. Instead, create a Neon branch before migrating as a restore point. The older code also runs on the newer schema, because `0002` only adds to it, so redeploying the previous commit doesn't need a downgrade.
 
-After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner, though it also resets the demo users' passwords to the values in your credentials file.
+After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner or the demo rate card, though it also resets the demo users' passwords to the values in your credentials file. Use the same credentials file as before, so the passwords don't change.
 
 ```powershell
 .\.venv\Scripts\python scripts\with_env.py --env-file $deploy --env-file $creds --dns 1.1.1.1 -- .\.venv\Scripts\python scripts\seed_foundation.py
 ```
+
+### Releasing Milestone 3 (reconciliation and claims)
+
+1. Create a Neon branch as a restore point.
+2. Push. Migration `0003` runs at startup. It only adds the nullable `claims.evidence` column, so existing rows are untouched and the previous commit still runs on the new schema.
+3. Run the seed again, as above. It adds "Demo rate card" v1 with its settlement, freight and tax rules, and changes nothing else. Without a published rate card, every order shows as Needs review.
+4. Sign in as the Finance Executive, open **Reconciliation** and choose **Run reconciliation**. A run only reads imported records and writes its own results, discrepancies and audit entry. It doesn't change orders or partner records, apart from filling in empty order links.
 
 ## Verify the ingestion workflow
 

@@ -9,6 +9,8 @@ if (process.env.VERCEL && !process.env.API_ORIGIN) {
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Dev only: the indicator sits over the sidebar's Sign out button and catches clicks.
+  devIndicators: false,
   experimental: {
     // `next start` buffers every proxied request body up to this limit, and larger
     // uploads then fail. It must stay above the API's MAX_UPLOAD_MB (default 25).

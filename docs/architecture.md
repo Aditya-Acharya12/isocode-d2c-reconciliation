@@ -131,10 +131,10 @@ Every transaction table also has `order_id` (nullable FK, indexed), `match_metho
 | Table | Key columns | Notes |
 |---|---|---|
 | `reconciliation_runs` | `as_of_date`, `scope`, `status`, `triggered_by`, `rate_card_ids`, `settings_snapshot`, counts, timings | Records all inputs, so a result can be explained later |
-| `reconciliation_results` | `run_id`, `order_id`, `primary_status`, `expected_paise`, `actual_paise`, `tcs_paise`, `tds_paise`, `explanation` (JSONB), `is_current` | **Deliberately stored calculated data:** it's the audit record of what was concluded and why. Partial unique index on `(order_id) WHERE is_current`. Only the latest few runs keep full rows, to stay inside the storage limit; run summaries and discrepancies are kept |
+| `reconciliation_results` | `run_id`, `order_id`, `primary_status`, `expected_paise`, `actual_paise`, `tcs_paise`, `tds_paise`, `explanation` (JSONB), `is_current` | **Deliberately stored calculated data:** it's the audit record of what was concluded and why. Partial unique index on `(order_id) WHERE is_current`. Only the current run keeps full rows, to stay inside the storage limit. Run summaries and discrepancies are kept |
 | `discrepancies` | `order_id`, `category`, `counterparty_partner_id`, `expected`, `actual`, `difference`, `due_date`, `state` (open, resolved, superseded), `first_seen_run_id`, `last_seen_run_id` | **Unique `(order_id, category, counterparty_partner_id)`**, so re-runs update it and never duplicate it |
 | `match_suggestions` | `source_table`, `source_id`, `candidate_order_id`, `score`, `signals` (JSONB), `method`, `state`, `reviewed_by` | The human review queue. Never auto-confirmed |
-| `claims` | `claim_no`, `discrepancy_id`, `partner_id`, `order_id`, `category`, `expected`, `actual`, `difference`, `recovered_amount`, `status`, `resolution_notes`, `created_by` | **Amounts are snapshotted on purpose:** what was filed mustn't change after later runs. One active claim per discrepancy |
+| `claims` | `claim_no`, `discrepancy_id`, `partner_id`, `order_id`, `category`, `expected`, `actual`, `difference`, `recovered_amount`, `status`, `resolution_notes`, `evidence` (JSONB, migration 0003), `created_by` | **Amounts and evidence are snapshotted on purpose:** what was filed mustn't change after later runs. One active claim per discrepancy |
 | `claim_events` | `claim_id`, `from_status`, `to_status`, `amount`, `note`, `actor_id` | Timeline of the claim |
 | `audit_logs` | `actor_id`, `action`, `entity_type`, `entity_id`, `before`, `after` | Append-only |
 
@@ -185,15 +185,22 @@ Records with a missing order ID use **deterministic candidate scoring** on amoun
 ### Flow
 
 ```
-1. Link     Attach unlinked records to orders: exact order ID → normalised ID → AWB → partner ref
-            Multiple candidates → review queue, never picked automatically
-2. Gather   One SQL aggregate per order, per stream, into a DataFrame of integer paise
-3. Rate     Find the effective rule at the order date. No rule or a tie → Needs review
-4. Evaluate Pure functions per stream. Each yields an outcome, amounts and explanation
-5. Persist  One transaction: write results, flip is_current, upsert discrepancies
+1. Link     Fill empty order links in three set-based passes: exact order ID → normalised
+            order ID → tracking ID (AWB). A record links only if it matches exactly one
+            order, and a partner tied to a channel only matches that channel's orders.
+            Existing links are never changed. Anything else stays unlinked and is listed.
+2. Gather   Load orders and linked records, with amounts converted to integer paise in SQL
+3. Rate     Find the published rule in force on the order date. No rule or a tie → Needs review
+4. Evaluate Pure functions per stream (services/reconciliation/engine.py, no database access)
+5. Persist  Same transaction: clear is_current, COPY the new results, upsert discrepancies,
+            resolve the ones that disappeared, record the run's inputs and the audit entry
 ```
 
-Runs use the direct database connection, under `REPEATABLE READ` with an advisory lock, so a concurrent import can't produce a half-consistent view and two runs can't overlap. The same data, rate card and `as_of_date` must give the same output, and a test enforces that.
+A run is a queued background job (`JobKind.RECONCILIATION`) that runs in **one transaction under `pg_advisory_xact_lock`**, so two runs can't interleave and a failed run leaves nothing behind. Only one run can be queued or running at a time. The same data, rate cards, threshold and `as_of_date` give the same output, and a test re-runs to prove it. Orders are evaluated 5,000 at a time, so memory stays flat. Full result rows are kept for the current run only, because each run at 100,000 orders takes about 175 MB (see [benchmarks.md](benchmarks.md)). Run summaries, discrepancies, claim evidence and the audit log keep the history.
+
+**The AI layer is never consulted.** The engine imports nothing from ingestion's suggestion code, and every figure comes from rate cards and imported records.
+
+A record that links to no order is listed under "Records not linked to an order" with the reason. The fuzzy candidate scoring and review queue described in section 6 weren't built for this deadline.
 
 ### Three independent streams
 
@@ -214,28 +221,40 @@ Adding reported tax back is what stops tax being counted as leakage. A settlemen
 |---|---|
 | No lines, payment not yet due | Pending |
 | No lines, past `delivered_at + settlement_terms_days` | **Unpaid past due** |
+| Some lines, payment not yet due, still short | Pending (partly paid) |
 | \|difference\| ≤ ₹10 | Settled, with the variance recorded |
 | difference < −₹10 | **Short-paid** |
 | difference > +₹10 | **Needs review** (overpaid). Not counted as money at risk |
-| Channel normally withholds tax but the file has no tax columns | **Needs review.** Otherwise a tax deduction could look like a short payment |
+| Channel normally withholds tax, none is reported, and the order looks short | **Needs review.** Otherwise a tax deduction could look like a short payment |
+| Money arrived by the wrong route (a settlement for a COD order) or from an unexpected payer | **Needs review** |
+| No rule, no delivery date, or no courier on a COD order | **Needs review** |
+| Return charge expected but not billed yet | Pending |
+
+The payer comes from the rule. A rule with no payer means the order's courier, paid through COD remittances. Otherwise the named partner pays through settlements. The due date is `delivered_at` plus that payer's `settlement_terms_days`.
 
 **B. Freight** (per invoice line, against the freight rate rule)
 
 | Condition | Outcome |
 |---|---|
 | billed − expected > ₹10 | **Freight overcharged**, stating the likely cause, such as billed slab 1 kg against declared 500 g |
-| Billed for an AWB with no order | Review queue |
-| Same AWB and shipment type on different invoices | **Needs review** as a possible duplicate charge |
-| GST on freight | Compared separately from the charge, so a tax line never reads as an overcharge |
+| Billed for an AWB with no order | Listed as an unlinked record, outside every total |
+| Two lines of the same shipment type for one order | **Needs review** as a possible duplicate charge |
+| No freight rule for the courier, slab and zone | **Needs review** |
+| GST on freight | Excluded from the billed amount, so a tax line never reads as an overcharge |
+
+Expected freight = base rate + COD charge (`max(cod_pct × order value, cod_min)`, forward COD shipments only) + fuel surcharge. An exact-zone rule beats an any-zone rule.
 
 **C. Returns**
 
 | Condition | Outcome |
 |---|---|
-| Return closed by courier, receipt found | Fine |
-| No receipt after `returned_at + return_grace_days` | **Return not received** |
+| Warehouse receipt found | Settled. A courier marking it returned isn't enough |
+| No receipt after `returned_at + return_grace_days` | **Return not received**, valued at the order value as stock at risk |
 | Still inside the grace period | Pending |
 | Quantity received is short, or condition is damaged | **Needs review** |
+| Returned with no return date | **Needs review** |
+
+The grace period is the return partner's, or the courier's when there's no return record.
 
 ### Primary status
 
@@ -251,25 +270,36 @@ Every result stores what a reviewer needs to verify it:
 
 ```json
 {
-  "stream": "receivable",
-  "rule": {"rate_card": "RC-2026-01 v3", "rule_id": 41, "pct_bps": 2500, "fixed_paise": 0},
-  "calc": {"base": 119900, "deduction": 29975, "expected_raw": 89925, "expected": 89900},
-  "actual": {"lines": [{"id": 8812, "net": 85509, "tcs": 571, "tds": 120, "file": 12, "row": 4471}], "total": 86200},
-  "difference": -3700,
-  "threshold": 1000,
-  "reason": "Received ₹862.00 against expected ₹899.00: short by ₹37.00"
+  "primary_stream": "receivable",
+  "reason": "Received ₹862.00 against ₹899.00 expected: short by ₹37.00.",
+  "precedence": ["unpaid_past_due", "return_not_received", "short_paid", "..."],
+  "streams": {
+    "receivable": {
+      "status": "short_paid",
+      "rule": {"rate_card": "Demo rate card v1", "rule_id": 41, "pct_bps": 2500, "fixed_paise": 0},
+      "base_paise": 119900, "deduction_paise": 29975, "expected_paise": 89900,
+      "net_received_paise": 85509, "tcs_paise": 571, "tds_paise": 120, "actual_paise": 86200,
+      "difference_paise": -3700, "threshold_paise": 1000, "due_date": "2026-10-21",
+      "lines": [{"kind": "settlement", "id": 8812, "file_id": 12, "row": 2, "...": "..."}]
+    },
+    "freight": {"status": "settled", "lines": []},
+    "returns": null
+  }
 }
 ```
+
+Each stream's record lists the source lines with their file and row, which is what the order page and claim evidence show.
 
 ### Lifecycle across runs
 
 - A discrepancy that still exists has its amount and `last_seen_run_id` updated.
-- A discrepancy that no longer exists, such as when a late payment arrives, becomes `resolved`. If it has an open claim, the claim is flagged for human review and isn't closed automatically.
-- **Money at risk** = Σ |difference| of open discrepancies, minus amounts already recovered on their claims.
+- A discrepancy that no longer exists, such as when a late payment arrives, becomes `resolved`. If it has an open claim, the claim page warns about it, and the claim isn't closed automatically. A discrepancy that comes back is reopened.
+- **Money at risk** = Σ |difference| of open cash discrepancies (unpaid, short-paid, freight overcharged), minus amounts already recovered on their active claims.
+- **Stock at risk** = Σ order value of open "return not received" discrepancies. It's shown separately, because it's goods, not cash.
 - **Recovered** = Σ `recovered_amount` on claims, recorded by a person. A claim only counts as recovered when finance confirms it.
-- **Auto-matched %** = orders settled with every link found deterministically, over orders evaluated, excluding Pending.
+- **Reconciled** = orders whose primary status is Settled.
 
-### Sample rows, as the engine would produce them
+### Sample rows, as the engine produces them (tested)
 
 | Order | Rule (seed) | Expected | Actual | Difference | Status |
 |---|---|---:|---:|---:|---|
@@ -281,11 +311,12 @@ The rates are inferred from the sample and need confirming with the real client 
 
 ## 8. Claims
 
-**Status flow:** `draft → submitted → acknowledged → partially_recovered → recovered`. `rejected` and `written_off` are the other terminal states. Each transition is checked on the server and logged in `claim_events`.
+**Status flow:** `draft → submitted → acknowledged → partially_recovered → recovered`. `rejected` and `written_off` are the other terminal states. Each transition is checked on the server (`services/reconciliation/claims.py`), logged in `claim_events` and audited.
 
-- Created from one discrepancy. Bulk creation and batch export are optional extras if time remains.
-- **Evidence export** is an XLSX per claim: the calculation, the rate rule used, and every supporting record with its source file and row number.
-- Exports neutralise spreadsheet formula injection in cells starting with `=`, `+`, `-` or `@`, because partner data ends up in a file someone will open in Excel.
+- **One claim per discrepancy**, created in bulk from the "Ready to claim" list, which groups open cash and return discrepancies by the partner who owes them. A discrepancy with an active claim, or one that's been resolved, can't be claimed.
+- **Evidence is snapshotted** into `claims.evidence` (JSONB, migration 0003) when the claim is created: the order, the stream's calculation and every supporting record with its source file and row. Later runs can't change what was filed.
+- Recovered amounts are running totals that can't decrease or exceed the claimed amount. Recovered defaults to the full amount. Rejected and written-off need a note.
+- **Evidence export** is CSV, one file per claim or one per partner, with an order row and a row per supporting record. It neutralises spreadsheet formula injection in text cells starting with `=`, `+`, `-`, `@`, tab or carriage return, because partner data ends up in a file someone will open in Excel. Numbers are left as numbers. XLSX was planned but CSV opens in the same tools and was enough for the deadline.
 
 ## 9. API outline
 
@@ -299,11 +330,10 @@ All routes are under `/api/v1`. Lists are paginated with server-side filters. Lo
 | Mapping | `POST /files/{id}/mapping-suggestions`, `POST /files/{id}/validations`, `GET /mappings`, `GET /mappings/{id}/versions`, `POST /mappings/{id}/versions/{v}/restore` |
 | Imports | `POST /files/{id}/imports`, `GET /imports/{id}`, `POST /imports/{id}/retry`, `GET /imports/{id}/errors`, `GET /imports/{id}/errors.csv`. Import history is `GET /files` |
 | Jobs | `GET /jobs/{id}` |
-| Reconciliation | `POST /recon/runs`, `GET /recon/runs`, `GET /recon/runs/{id}`, `GET /recon/results`, `GET /recon/results/{order_id}`, `GET /recon/results/export.csv` |
-| Review queue | `GET /match-suggestions`, `POST /match-suggestions/{id}/confirm`, `POST /match-suggestions/{id}/reject` |
-| Claims | `POST /claims`, `GET /claims`, `GET /claims/{id}`, `PATCH /claims/{id}`, `POST /claims/{id}/transitions`, `GET /claims/{id}/evidence.xlsx` |
-| Dashboard | `GET /dashboard/summary`, `/by-category`, `/by-partner`, `/aging` |
-| Config | CRUD on `/partners`, `/rate-cards`, `POST /rate-cards/{id}/publish`, `/tax-rules`, `/settings` |
+| Reconciliation | `POST /reconciliation/runs` (finance), `GET /reconciliation/runs`, `GET /reconciliation/summary`, `GET /reconciliation/results` (status, channel, partner, category, date range, search, sort), `GET /reconciliation/orders/{order_id}`, `GET /reconciliation/returns`, `GET /reconciliation/unmatched`, `GET /reconciliation/tax` |
+| Claims | `GET /claims/eligible`, `POST /claims` (finance), `GET /claims`, `GET /claims/evidence.csv?partner_id=`, `GET /claims/{id}`, `POST /claims/{id}/transitions` (finance), `GET /claims/{id}/evidence.csv` |
+| Config | `/partners` (co-founder writes), `GET /rate-cards` (read-only for now) |
+| Not built | Match review queue, dashboard breakdowns, rate-card editing, results export |
 | Audit | `GET /audit-logs` |
 | Health | `GET /api/healthz` (never touches the database, so it doesn't wake Neon) |
 
@@ -313,16 +343,18 @@ Errors use one shape: `{ "code", "message", "details" }`.
 
 ```
 /login
-/                     Dashboard: KPIs, by category, by partner, aging
-/imports              Upload, import history, row errors
-/imports/[id]/mapping Mapping review and 20-row preview
-/reconciliation       Order table: filters, run button, export
-/reconciliation/[id]  Calculation, source records, timeline, create claim
-/reconciliation/review  Match review queue
-/claims               Claims list and bulk evidence export
-/claims/[id]          Claim detail, status changes, notes, evidence
-/settings/partners    Partners and payment terms
-/settings/rate-cards  Rate cards: versions, rules, publish
+/                         Overview
+/imports                  Upload and import history
+/imports/[id]             Mapping review, preview, results and row errors for one file
+/reconciliation           Summary, run button, filterable order table, unlinked records, tax withheld
+/reconciliation/[orderId] How the status and amounts were calculated, per stream, with source records
+/returns                  Returns by state: awaiting scan, not received, received, needs review
+/claims                   Ready to claim (by partner), claims list, partner evidence CSV
+/claims/[id]              Claim detail, status changes, evidence as filed, history
+/settings/mappings        Saved column mappings and their versions
+/settings/rate-cards      Rate cards in force (read-only)
+/settings/partners        Partners and payment terms
+/activity                 Audit log (co-founder) or own activity (finance)
 ```
 
 Uses App Router, TanStack Query for server state and TanStack Table for server-side tables.
