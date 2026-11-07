@@ -1,0 +1,292 @@
+{
+  "environment": {
+    "date": "2026-11-07T11:58:32+00:00",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 4, GenuineIntel",
+    "logical_cpus": 12,
+    "ram_gb": 15.7,
+    "os": "Windows-10-10.0.26200-SP0",
+    "python": "3.11.5",
+    "pandas": "3.1.1",
+    "postgres": "16.15",
+    "postgres_host": "local Docker container"
+  },
+  "rows_per_file": 100000,
+  "bad_row_rate": 0.005,
+  "database_size_mb_after": 591,
+  "jobs_run": 22,
+  "results": [
+    {
+      "name": "order CSV",
+      "file_type": "order",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 10.2,
+      "upload_s": 0.28,
+      "analysis_s": 1.82,
+      "validation_s": 2.78,
+      "import_s": 14.13,
+      "total_s": 19.0,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 398,
+      "import_steps_ms": {
+        "load": 11451,
+        "parse": 762,
+        "validate": 1598,
+        "read_blob": 78,
+        "store_issues": 69
+      },
+      "under_60s": true
+    },
+    {
+      "name": "settlement CSV",
+      "file_type": "settlement",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 7.6,
+      "upload_s": 0.17,
+      "analysis_s": 1.92,
+      "validation_s": 5.31,
+      "import_s": 17.88,
+      "total_s": 25.27,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 405,
+      "import_steps_ms": {
+        "load": 12532,
+        "parse": 840,
+        "validate": 3716,
+        "read_blob": 73,
+        "store_issues": 579
+      },
+      "under_60s": true
+    },
+    {
+      "name": "cod_remittance CSV",
+      "file_type": "cod_remittance",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 5.9,
+      "upload_s": 0.2,
+      "analysis_s": 1.52,
+      "validation_s": 3.92,
+      "import_s": 24.42,
+      "total_s": 30.06,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 382,
+      "import_steps_ms": {
+        "load": 18948,
+        "parse": 799,
+        "validate": 3553,
+        "read_blob": 83,
+        "store_issues": 888
+      },
+      "under_60s": true
+    },
+    {
+      "name": "freight_invoice CSV",
+      "file_type": "freight_invoice",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 6.8,
+      "upload_s": 0.21,
+      "analysis_s": 3.29,
+      "validation_s": 6.43,
+      "import_s": 26.78,
+      "total_s": 36.71,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 407,
+      "import_steps_ms": {
+        "load": 18972,
+        "parse": 1052,
+        "validate": 5530,
+        "read_blob": 83,
+        "store_issues": 986
+      },
+      "under_60s": true
+    },
+    {
+      "name": "return_record CSV",
+      "file_type": "return_record",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 4.7,
+      "upload_s": 0.13,
+      "analysis_s": 1.54,
+      "validation_s": 4.03,
+      "import_s": 24.28,
+      "total_s": 29.98,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 378,
+      "import_steps_ms": {
+        "load": 20314,
+        "parse": 690,
+        "validate": 2152,
+        "read_blob": 71,
+        "store_issues": 894
+      },
+      "under_60s": true
+    },
+    {
+      "name": "warehouse_receipt CSV",
+      "file_type": "warehouse_receipt",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 3.6,
+      "upload_s": 0.12,
+      "analysis_s": 1.31,
+      "validation_s": 2.15,
+      "import_s": 23.66,
+      "total_s": 27.24,
+      "imported": 99500,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 0,
+      "peak_rss_mb": 369,
+      "import_steps_ms": {
+        "load": 20592,
+        "parse": 539,
+        "validate": 1186,
+        "read_blob": 40,
+        "store_issues": 1140
+      },
+      "under_60s": true
+    },
+    {
+      "name": "order CSV, updating existing",
+      "file_type": "order",
+      "file_format": "csv",
+      "rows": 100000,
+      "size_mb": 10.2,
+      "upload_s": 0.27,
+      "analysis_s": 4.13,
+      "validation_s": 4.82,
+      "import_s": 16.22,
+      "total_s": 25.43,
+      "imported": 0,
+      "rejected": 500,
+      "duplicates": 0,
+      "updated": 99500,
+      "peak_rss_mb": 422,
+      "import_steps_ms": {
+        "load": 12256,
+        "parse": 1199,
+        "validate": 2450,
+        "read_blob": 120,
+        "store_issues": 73
+      },
+      "under_60s": true
+    }
+  ],
+  "reconciliation": {
+    "status": "succeeded",
+    "total_s": 122.5,
+    "peak_rss_mb": 364,
+    "counts": {
+      "linked": {
+        "return:tracking_id": 99003,
+        "freight:tracking_id": 99002,
+        "return:exact_order_id": 0,
+        "freight:exact_order_id": 0,
+        "settlement:tracking_id": 0,
+        "settlement:exact_order_id": 99003,
+        "cod_remittance:tracking_id": 99002,
+        "return:normalised_order_id": 0,
+        "freight:normalised_order_id": 0,
+        "cod_remittance:exact_order_id": 0,
+        "warehouse_receipt:tracking_id": 99002,
+        "settlement:normalised_order_id": 0,
+        "warehouse_receipt:exact_order_id": 0,
+        "cod_remittance:normalised_order_id": 0,
+        "warehouse_receipt:normalised_order_id": 0
+      },
+      "orders": 99500,
+      "statuses": {
+        "pending": 2,
+        "short_paid": 41,
+        "needs_review": 50984,
+        "unpaid_past_due": 1,
+        "freight_overcharged": 48115,
+        "return_not_received": 357
+      },
+      "unmatched": {
+        "return": 497,
+        "freight": 498,
+        "settlement": 497,
+        "cod_remittance": 498,
+        "warehouse_receipt": 498
+      },
+      "discrepancies_open": 48711,
+      "discrepancies_resolved": 0
+    },
+    "timings_ms": {
+      "link": 48802,
+      "load": 14159,
+      "evaluate": 15057,
+      "save_results": 30541,
+      "save_discrepancies": 13387
+    }
+  },
+  "reconciliation_second_run": {
+    "status": "succeeded",
+    "total_s": 75.0,
+    "peak_rss_mb": 219,
+    "timings_ms": {
+      "link": 8200,
+      "load": 14386,
+      "evaluate": 14778,
+      "save_results": 31480,
+      "save_discrepancies": 5926
+    },
+    "counts": {
+      "linked": {
+        "return:tracking_id": 0,
+        "freight:tracking_id": 0,
+        "return:exact_order_id": 0,
+        "freight:exact_order_id": 0,
+        "settlement:tracking_id": 0,
+        "settlement:exact_order_id": 0,
+        "cod_remittance:tracking_id": 0,
+        "return:normalised_order_id": 0,
+        "freight:normalised_order_id": 0,
+        "cod_remittance:exact_order_id": 0,
+        "warehouse_receipt:tracking_id": 0,
+        "settlement:normalised_order_id": 0,
+        "warehouse_receipt:exact_order_id": 0,
+        "cod_remittance:normalised_order_id": 0,
+        "warehouse_receipt:normalised_order_id": 0
+      },
+      "orders": 99500,
+      "statuses": {
+        "pending": 2,
+        "short_paid": 41,
+        "needs_review": 50984,
+        "unpaid_past_due": 1,
+        "freight_overcharged": 48115,
+        "return_not_received": 357
+      },
+      "unmatched": {
+        "return": 497,
+        "freight": 498,
+        "settlement": 497,
+        "cod_remittance": 498,
+        "warehouse_receipt": 498
+      },
+      "discrepancies_open": 48711,
+      "discrepancies_resolved": 0
+    }
+  }
+}

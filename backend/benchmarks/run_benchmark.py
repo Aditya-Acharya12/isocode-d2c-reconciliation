@@ -1,7 +1,12 @@
-"""The reproducible ingestion benchmark. Measures real job code against real Postgres.
+"""The reproducible ingestion and reconciliation benchmark. Measures real job code
+against real Postgres.
 
     python benchmarks/run_benchmark.py                 # 100,000 rows, every file type
     python benchmarks/run_benchmark.py --rows 5000     # a quick check
+
+After the imports, it reconciles everything it loaded, with the demo rate card, and
+times that too. The generated amounts are random, so most orders end up as exceptions,
+which is the most work for the engine.
 
 It creates and uses its own database (recon_scratch_benchmark) on the local Docker
 Postgres, dropping any earlier copy. It never touches the app's data. Generated files
@@ -21,7 +26,7 @@ import tempfile
 import threading
 import time
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parent
@@ -56,15 +61,18 @@ from app.models import (  # noqa: E402
     BackgroundJob,
     ImportJob,
     Partner,
+    ReconciliationRun,
     SalesChannel,
+    Setting,
     UploadedFile,
     User,
 )
-from app.models.enums import FileType, PartnerType  # noqa: E402
+from app.models.enums import FileType, JobKind, PartnerType  # noqa: E402
 from app.services.ingestion import service  # noqa: E402
 from app.services.ingestion.spec import MappingSpec  # noqa: E402
 from app.services.ingestion.suggest import build_draft  # noqa: E402
 from app.services.jobs import run_until_idle  # noqa: E402
+from app.services.reconciliation.demo_rates import seed_demo_rate_card  # noqa: E402
 
 # The system temp folder, so that a synced folder doesn't upload and rescan these files.
 DATA_DIR = Path(tempfile.gettempdir()) / "recon-benchmark-data"
@@ -352,6 +360,42 @@ def run_case(name, path: Path, file_type: str, user_id: int, sources: dict) -> R
     )
 
 
+def run_reconciliation(user_id: int) -> dict:
+    """Queues one run, as the API does, and has the job runner do it."""
+    with Session(get_direct_engine(), expire_on_commit=False) as db:
+        db.add(Setting(key="discrepancy_threshold_paise", value=1000))
+        seed_demo_rate_card(db)
+        job = BackgroundJob(
+            kind=JobKind.RECONCILIATION, payload={}, created_by=user_id,
+            idempotency_key="benchmark-reconcile",
+        )
+        db.add(job)
+        db.flush()
+        run = ReconciliationRun(
+            as_of_date=date(2026, 11, 7), scope={"orders": "all"}, background_job_id=job.id,
+            triggered_by=user_id, rate_card_ids=[], settings_snapshot={},
+        )
+        db.add(run)
+        db.flush()
+        job.payload = {"run_id": run.id}
+        db.commit()
+
+        gc.collect()
+        memory = PeakMemory()
+        with memory:
+            started = time.perf_counter()
+            run_until_idle()
+            total_s = time.perf_counter() - started
+        db.refresh(run)
+        return {
+            "status": run.status.value,
+            "total_s": round(total_s, 1),
+            "peak_rss_mb": round(memory.peak / 1024 / 1024),
+            "counts": run.counts,
+            "timings_ms": run.timings_ms,
+        }
+
+
 def environment() -> dict:
     with get_direct_engine().connect() as connection:
         postgres = connection.execute(text("SHOW server_version")).scalar()
@@ -372,6 +416,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rows", type=int, default=100_000)
     parser.add_argument("--skip-xlsx", action="store_true")
+    parser.add_argument("--skip-reconcile", action="store_true")
     args = parser.parse_args()
 
     DATA_DIR.mkdir(exist_ok=True)
@@ -412,6 +457,16 @@ def main() -> int:
             flush=True,
         )
 
+    reconciliation = None
+    if not args.skip_reconcile:
+        print("Reconciling everything imported...", flush=True)
+        reconciliation = run_reconciliation(user_id)
+        print(
+            f"  {reconciliation['total_s']:6.1f}s total, peak {reconciliation['peak_rss_mb']} MB, "
+            f"{reconciliation['status']}, steps (ms) {reconciliation['timings_ms']}",
+            flush=True,
+        )
+
     with get_direct_engine().connect() as connection:
         size_mb = connection.scalar(
             text("SELECT pg_database_size(current_database()) / 1024 / 1024")
@@ -425,6 +480,7 @@ def main() -> int:
         "database_size_mb_after": size_mb,
         "jobs_run": jobs,
         "results": [asdict(result) for result in results],
+        "reconciliation": reconciliation,
     }
     output = RESULTS_DIR / f"ingestion_{args.rows}.json"
     output.write_text(json.dumps(report, indent=2), encoding="utf-8")

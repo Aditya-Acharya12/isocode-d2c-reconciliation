@@ -187,6 +187,8 @@ class Claim(TimestampMixin, Base):
         enum_column(ClaimStatus, "claim_status"), default=ClaimStatus.DRAFT, nullable=False
     )
     resolution_notes: Mapped[str | None] = mapped_column(Text)
+    # The calculation and source records as they were when the claim was filed.
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
 
 

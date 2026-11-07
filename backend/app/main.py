@@ -3,7 +3,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, Request, Response
 
-from app.api.routes import audit, auth, diagnostics, ingestion, partners, workspace
+from app.api.routes import (
+    audit,
+    auth,
+    claims,
+    diagnostics,
+    ingestion,
+    partners,
+    reconciliation,
+    workspace,
+)
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.services.jobs import worker
@@ -52,7 +61,9 @@ def create_app() -> FastAPI:
         return {"status": "ok", "demo_mode": settings.demo_mode}
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (auth, workspace, partners, ingestion, audit, diagnostics):
+    for module in (
+        auth, workspace, partners, ingestion, reconciliation, claims, audit, diagnostics
+    ):
         v1.include_router(module.router)
     app.include_router(v1)
     return app

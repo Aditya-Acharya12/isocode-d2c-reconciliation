@@ -18,4 +18,7 @@ known-third-party = ["alembic"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "E501"]
+# These build SQL only from fixed table names and fixed conditions. Every value is bound.
+"app/services/reconciliation/runner.py" = ["S608"]
+"app/api/routes/reconciliation.py" = ["S608", "E501"]
 "scripts/**" = ["S105", "S106"]

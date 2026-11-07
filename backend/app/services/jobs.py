@@ -143,6 +143,13 @@ def complete_job(db: Session, job_id: int, worker_id: str, result: dict | None) 
 
 
 def _record_import_outcome(db: Session, job: BackgroundJob, action: str) -> None:
+    if job.kind == JobKind.RECONCILIATION:
+        # The run row mirrors its job, so that a failed run never looks as if it's running.
+        db.execute(
+            text("UPDATE reconciliation_runs SET status = 'failed' WHERE background_job_id = :id"),
+            {"id": job.id},
+        )
+        return
     if job.kind != JobKind.IMPORT:
         return
     record_audit(
@@ -175,11 +182,13 @@ def _record_failure(job_id: int, worker_id: str, message: str, retry: bool) -> N
 def _handlers() -> dict[JobKind, Callable[[int, str], None]]:
     # Imported here, because this is what loads pandas. An idle server never pays for it.
     from app.services.ingestion import handlers
+    from app.services.reconciliation.handler import run_reconciliation
 
     return {
         JobKind.FILE_ANALYSIS: handlers.run_analysis,
         JobKind.VALIDATION: handlers.run_validation,
         JobKind.IMPORT: handlers.run_import,
+        JobKind.RECONCILIATION: run_reconciliation,
     }
 
 

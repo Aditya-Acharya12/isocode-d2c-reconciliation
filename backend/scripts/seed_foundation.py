@@ -20,6 +20,7 @@ from app.core.permissions import Role  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.models import Partner, SalesChannel, Setting, User  # noqa: E402
 from app.models.enums import PartnerType  # noqa: E402
+from app.services.reconciliation.demo_rates import seed_demo_rate_card  # noqa: E402
 
 FINANCE_EMAIL = "finance@loomandfold.example"
 FOUNDER_EMAIL = "founder@loomandfold.example"
@@ -99,7 +100,10 @@ def seed(db: Session, finance_password: str, founder_password: str) -> None:
     for key, value in SETTINGS.items():
         if db.get(Setting, key) is None:
             db.add(Setting(key=key, value=value))
+    db.flush()
 
+    # Only added when no card of that name exists, so editing rates later is never undone.
+    seed_demo_rate_card(db)
     db.commit()
 
 
