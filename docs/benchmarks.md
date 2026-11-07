@@ -2,7 +2,7 @@
 
 The target is 100,000 rows in under a minute locally. This records what was actually measured, including where the target was missed.
 
-**Result: met for CSV imports, missed for one XLSX import, and missed by most files for the whole workflow.** Measured as assumption A23 defines the target, all six CSV imports finished within 60 seconds (38–54 seconds), and so did one of the two XLSX imports (54 seconds, against 64 for the other). From upload through to the end of import, only returns, warehouse receipts and the update case stayed under 60 seconds. All of it was measured on a machine with heavy background load, described below, so a clean run is still needed.
+**Result: met for CSV imports, missed for one XLSX import, and missed by most files for the whole workflow.** Reconciliation is reported [separately below](#reconciliation-at-100000-orders): about 122 seconds the first time and 75 seconds after that. Measured as assumption A23 defines the target, all six CSV imports finished within 60 seconds (38–54 seconds), and so did one of the two XLSX imports (54 seconds, against 64 for the other). From upload through to the end of import, only returns, warehouse receipts and the update case stayed under 60 seconds. All of it was measured on a machine with heavy background load, described below, so a clean run is still needed.
 
 ## How it was measured
 
@@ -60,7 +60,7 @@ Parsing and validating take much less, so the pandas and `COPY` design isn't the
 
 Measured on 7 November 2026, on the same machine and with the same caveat about background load. After importing the six CSV files above, the benchmark reconciles everything with the demo rate card, through the real job runner. That's 100,000 orders with about 99,500 settlement lines, COD remittances, freight lines, returns and warehouse receipts each.
 
-The brief sets no target for reconciliation. These figures are for capacity planning.
+**Result: about 122 seconds for the first run and about 75 seconds for a rerun, so neither is under one minute.** The one-minute target is read as applying to imports (A23). The brief doesn't say whether it also covers reconciliation, so this doesn't claim to meet or miss it. If the target does cover reconciliation, it's missed.
 
 | Run | Total | Link | Load | Evaluate | Save results | Save discrepancies | Peak memory |
 |---|---:|---:|---:|---:|---:|---:|---:|

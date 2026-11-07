@@ -164,7 +164,7 @@ A claim covers one discrepancy, so one order and one partner. Claims are created
 **Confirm:** whether partners want one claim reference per batch instead.
 
 ### A36. Recovery is entered by hand
-Recovered amounts are typed in by finance as running totals. They aren't matched to a later settlement or credit note.
+Recovered amounts are typed in by finance as running totals. They aren't matched to a specific later settlement or credit note. If a recovery also arrives in an imported file, the run shows a smaller shortfall, and money at risk subtracts only the part of the typed-in amount the data doesn't yet show, so a recovery is never counted twice. Architecture section 8 has the exact rule.
 
 ### A37. Tax figures are summarised, not reconciled
 The tax view totals the TCS and TDS partners report and counts lines with no tax reported. It doesn't compute what should have been withheld, because rates are reference data only (A10).
@@ -172,7 +172,9 @@ The tax view totals the TCS and TDS partners report and counts lines with no tax
 ## Performance
 
 ### A23. What "100,000 rows in under a minute" measures
-We read it as: from an approved import starting to all rows being committed, for one file. Reconciliation across 100,000 orders is measured and reported separately, against the same target.
+We read it as: from an approved import starting to all rows being committed, for one file. The brief doesn't say whether it covers reconciliation too, so reconciliation across 100,000 orders is measured and reported separately. It doesn't meet one minute: locally it took about 122 seconds on the first run and about 75 seconds on a rerun (see [benchmarks.md](benchmarks.md)). No document claims otherwise.
+
+**Confirm:** whether the one-minute target was meant to include reconciliation.
 
 Both CSV and XLSX get measured. The benchmark that tests the target runs **locally**, is reproducible from a script, and its report states the machine used. Deployed performance is reported separately if measured, including any failure. It's secondary to the local benchmark and won't delay implementation. Free-tier hosting isn't assumed to meet the target.
 
