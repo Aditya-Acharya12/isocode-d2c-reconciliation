@@ -1,9 +1,17 @@
-"""Creates demo users, partners, channels and default settings. Safe to run repeatedly.
+"""Creates demo users, partners, channels, default settings and the demo rate card.
 
+Safe to run repeatedly: it only adds what's missing, and never changes an existing row.
 Every name is fictional. Passwords come from the environment, so none live in the repo.
-Existing rows are left unchanged, except demo passwords, which follow the environment.
+
+    seed_foundation.py                    add whatever is missing
+    seed_foundation.py --rate-card-only   add only the demo rate card, touching nothing else
+    seed_foundation.py --reset-passwords  also set existing demo users' passwords
+
+Without --reset-passwords, an existing demo user's password is never changed, and the
+password variables are only needed when a demo user has to be created.
 """
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -20,7 +28,11 @@ from app.core.permissions import Role  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.models import Partner, SalesChannel, Setting, User  # noqa: E402
 from app.models.enums import PartnerType  # noqa: E402
-from app.services.reconciliation.demo_rates import seed_demo_rate_card  # noqa: E402
+from app.services.reconciliation.demo_rates import (  # noqa: E402
+    CARD_NAME,
+    missing_references,
+    seed_demo_rate_card,
+)
 
 FINANCE_EMAIL = "finance@loomandfold.example"
 FOUNDER_EMAIL = "founder@loomandfold.example"
@@ -59,12 +71,24 @@ def _required_env(name: str) -> str:
     return value
 
 
-def seed(db: Session, finance_password: str, founder_password: str) -> None:
-    users = [
-        (FINANCE_EMAIL, "Finance Executive (Demo)", Role.FINANCE_EXECUTIVE, finance_password),
-        (FOUNDER_EMAIL, "Co-founder (Demo)", Role.CO_FOUNDER, founder_password),
+DEMO_USERS = [
+    (FINANCE_EMAIL, "Finance Executive (Demo)", Role.FINANCE_EXECUTIVE, "SEED_FINANCE_PASSWORD"),
+    (FOUNDER_EMAIL, "Co-founder (Demo)", Role.CO_FOUNDER, "SEED_FOUNDER_PASSWORD"),
+]
+
+
+def passwords_needed(db: Session, reset_passwords: bool) -> list[str]:
+    """The password variables this run needs: for missing users, or all of them on a reset."""
+    return [
+        variable
+        for email, _, _, variable in DEMO_USERS
+        if reset_passwords or db.scalar(select(User.id).where(User.email == email)) is None
     ]
-    for email, full_name, role, password in users:
+
+
+def seed(db: Session, passwords: dict[str, str], reset_passwords: bool = False) -> None:
+    """passwords maps each variable in DEMO_USERS to its value, where one is needed."""
+    for email, full_name, role, variable in DEMO_USERS:
         user = db.scalar(select(User).where(User.email == email))
         if user is None:
             db.add(
@@ -72,11 +96,11 @@ def seed(db: Session, finance_password: str, founder_password: str) -> None:
                     email=email,
                     full_name=full_name,
                     role=role,
-                    password_hash=hash_password(password),
+                    password_hash=hash_password(passwords[variable]),
                 )
             )
-        else:
-            user.password_hash = hash_password(password)
+        elif reset_passwords:
+            user.password_hash = hash_password(passwords[variable])
 
     existing_partners = {p.name: p for p in db.scalars(select(Partner))}
     for name, partner_type, terms, grace in PARTNERS:
@@ -107,13 +131,55 @@ def seed(db: Session, finance_password: str, founder_password: str) -> None:
     db.commit()
 
 
-def main() -> None:
+def seed_rate_card_only(db: Session) -> str:
+    """Adds the demo rate card and nothing else. Users, partners, channels and settings
+    are only read. Refuses, writing nothing, if the partners or channels it needs are
+    missing, because a card created without them couldn't be completed by a later run."""
+    missing = missing_references(db)
+    if missing:
+        raise SystemExit(
+            "The demo rate card needs partners and channels that don't exist yet: "
+            f"{', '.join(missing)}. Run the full seed first. Nothing was changed."
+        )
+    card = seed_demo_rate_card(db)
+    if card is None:
+        db.rollback()
+        return f'"{CARD_NAME}" already exists, so nothing was changed.'
+    db.commit()
+    return f'Added "{CARD_NAME}" v{card.version}. Nothing else was changed.'
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--rate-card-only",
+        action="store_true",
+        help="Add only the demo rate card. Users, partners, channels and settings are untouched.",
+    )
+    mode.add_argument(
+        "--reset-passwords",
+        action="store_true",
+        help="Also set existing demo users' passwords from the environment.",
+    )
+    args = parser.parse_args(argv)
     load_dotenv(BACKEND_DIR / ".env")
-    finance_password = _required_env("SEED_FINANCE_PASSWORD")
-    founder_password = _required_env("SEED_FOUNDER_PASSWORD")
     with Session(get_direct_engine()) as db:
-        seed(db, finance_password, founder_password)
-    print(f"Seeded. Sign in as {FINANCE_EMAIL} or {FOUNDER_EMAIL}.")
+        if args.rate_card_only:
+            print(seed_rate_card_only(db))
+            return
+        passwords = {
+            variable: _required_env(variable)
+            for variable in passwords_needed(db, args.reset_passwords)
+        }
+        seed(db, passwords, args.reset_passwords)
+    if args.reset_passwords:
+        print(f"Seeded, and reset the passwords of {FINANCE_EMAIL} and {FOUNDER_EMAIL}.")
+    else:
+        print(
+            f"Seeded. Existing passwords were left unchanged. Users: {FINANCE_EMAIL}, "
+            f"{FOUNDER_EMAIL}."
+        )
 
 
 if __name__ == "__main__":

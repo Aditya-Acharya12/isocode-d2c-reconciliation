@@ -52,7 +52,7 @@ $creds = "C:\path\to\demo-credentials.env"
 .\.venv\Scripts\python scripts\with_env.py --env-file $deploy --env-file $creds -- .\.venv\Scripts\python scripts\seed_foundation.py
 ```
 
-The generator creates random passwords without printing them, and never overwrites an existing file. Keep that file outside the repository. It's safe to run the seed again.
+The generator creates random passwords without printing them, and never overwrites an existing file. Keep that file outside the repository. It's safe to run the seed again: it only adds what's missing, and never changes an existing user's password unless you pass `--reset-passwords`.
 
 ## 4. Vercel (frontend)
 
@@ -82,17 +82,33 @@ Pushing to `main` redeploys Render and Vercel. Migrations run automatically at s
 
 **Rolling back:** don't use `alembic downgrade` on real data. Downgrading `0002` deletes imported order data, and refuses to run if records depend on a warehouse. Instead, create a Neon branch before migrating as a restore point. The older code also runs on the newer schema, because `0002` only adds to it, so redeploying the previous commit doesn't need a downgrade.
 
-After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner or the demo rate card, though it also resets the demo users' passwords to the values in your credentials file. Use the same credentials file as before, so the passwords don't change.
+After a release that changes the seed, run it again from your machine. It only adds what's missing, such as the `Warehouse` partner or the demo rate card. It never changes an existing row, and leaves existing users' passwords alone, so the credentials file is only needed if a demo user is missing.
 
 ```powershell
 .\.venv\Scripts\python scripts\with_env.py --env-file $deploy --env-file $creds --dns 1.1.1.1 -- .\.venv\Scripts\python scripts\seed_foundation.py
 ```
 
+| Option | What it does |
+|---|---|
+| *(none)* | Adds missing users, partners, channels, settings and the demo rate card. Existing passwords are unchanged |
+| `--rate-card-only` | Adds only the demo rate card and its tax rules. Reads users, partners, channels and settings, and writes none of them. Needs no credentials file |
+| `--reset-passwords` | Also sets existing demo users' passwords from the credentials file. Only use this to change them on purpose |
+
+`--rate-card-only` does nothing if a card named "Demo rate card" already exists, so it never overwrites rates. If a partner or channel the card needs is missing, it stops and writes nothing.
+
 ### Releasing Milestone 3 (reconciliation and claims)
 
 1. Create a Neon branch as a restore point.
 2. Push. Migration `0003` runs at startup. It only adds the nullable `claims.evidence` column, so existing rows are untouched and the previous commit still runs on the new schema.
-3. Run the seed again, as above. It adds "Demo rate card" v1 with its settlement, freight and tax rules, and changes nothing else. Without a published rate card, every order shows as Needs review.
+3. Add the demo rate card. This adds "Demo rate card" v1 with its settlement, freight and tax rules, and changes nothing else. It doesn't read the credentials file, so it can't touch any password. Without a published rate card, every order shows as Needs review.
+
+   ```powershell
+   cd backend
+   $deploy = "C:\path\to\.env.deploy"   # outside the repository, as in section 1
+   .\.venv\Scripts\python scripts\with_env.py --env-file $deploy --dns 1.1.1.1 -- .\.venv\Scripts\python scripts\seed_foundation.py --rate-card-only
+   ```
+
+   It prints either `Added "Demo rate card" v1. Nothing else was changed.` or that the card already exists. `--dns 1.1.1.1` is only needed if your router can't resolve Neon's hostname.
 4. Sign in as the Finance Executive, open **Reconciliation** and choose **Run reconciliation**. A run only reads imported records and writes its own results, discrepancies and audit entry. It doesn't change orders or partner records, apart from filling in empty order links.
 
 ## Verify the ingestion workflow

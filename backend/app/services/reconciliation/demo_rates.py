@@ -75,6 +75,15 @@ TAX_RULES = [("gst_tcs", 50), ("income_tax_tds", 10)]
 TAX_FROM = date(2024, 10, 1)
 
 
+def missing_references(db: Session) -> list[str]:
+    """Channel codes and partner names the demo card refers to that don't exist."""
+    channels = set(db.scalars(select(SalesChannel.code)))
+    partners = set(db.scalars(select(Partner.name)))
+    needed_channels = {code for code, *_ in SETTLEMENT_RULES} | set(TAX_CHANNELS)
+    needed_partners = {payer for *_, payer, _, _ in SETTLEMENT_RULES if payer} | set(COURIERS)
+    return sorted(needed_channels - channels) + sorted(needed_partners - partners)
+
+
 def seed_demo_rate_card(db: Session) -> RateCard | None:
     """Adds the demo card if there's no card of that name yet. Never changes an existing one."""
     if db.scalar(select(RateCard).where(RateCard.name == CARD_NAME)) is not None:
