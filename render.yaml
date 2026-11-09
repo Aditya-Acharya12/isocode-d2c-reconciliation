@@ -21,9 +21,9 @@ services:
         value: "true"
       - key: MAX_UPLOAD_MB
         value: "25"
-      # Turn this off once the deployed upload limits have been measured.
+      # Off in production. Set to "true" only while measuring upload limits.
       - key: ENABLE_DIAGNOSTICS
-        value: "true"
+        value: "false"
       - key: JWT_SECRET
         generateValue: true
       # Neon connection strings: the pooled one (host contains "-pooler") and the direct one.
