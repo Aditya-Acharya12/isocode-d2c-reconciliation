@@ -4,7 +4,7 @@ Finds money a D2C brand is owed, order by order, across marketplace settlements,
 
 Built as a take-home for Isocode. The client is a Bengaluru home textiles brand with about 30,000 orders a month, sold through its website, three marketplaces and two quick-commerce platforms, and shipped through two courier aggregators.
 
-> **Status: Milestone 3 (reconciliation and claims) built and tested locally, not yet deployed.** Milestone 2 (ingestion) is deployed. Working end to end: sign-in and roles, partners, the audit log, the import workflow, deterministic reconciliation with an explanation for every order, returns tracking, claims with CSV evidence export, and a summary of tax withheld. The dashboard polish of Milestone 4 isn't done yet. All data is synthetic.
+> **Status: deployed at https://isocode-d2c-reconciliation.vercel.app, with reconciliation and claims (Milestone 3) live.** The deployment holds 150 synthetic orders and no partner files yet; see [deployment.md](deployment.md). Working end to end: sign-in and roles, partners, the audit log, the import workflow, deterministic reconciliation with an explanation for every order, returns tracking, claims with CSV evidence export, and a summary of tax withheld. The dashboard polish of Milestone 4 isn't done yet. All data is synthetic.
 
 ## Scope
 
@@ -78,7 +78,7 @@ npx playwright test
 
 | Layer | Technology | Hosting (free tiers) |
 |---|---|---|
-| Frontend | Next.js, TypeScript, Tailwind, shadcn/ui, Recharts | Vercel Hobby |
+| Frontend | Next.js, TypeScript, Tailwind, shadcn/ui, TanStack Query and Table | Vercel Hobby |
 | Backend | FastAPI, SQLAlchemy, Alembic, pandas | Render Free |
 | Database | PostgreSQL | Neon Free |
 

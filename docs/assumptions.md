@@ -186,7 +186,7 @@ The budget is ₹0: Vercel Hobby, Render Free and Neon Free. Render's free Postg
 This is a demo setup, not a production recommendation. The first request after an idle period can take about a minute, and Neon suspends the database if monthly limits are exceeded. Vercel Hobby also doesn't permit commercial use, so a real client deployment needs paid plans.
 
 ### A25. Demo data volume
-The deployed demo holds about 3,000 synthetic orders, to stay well inside Neon's 1 GB limit. The 100k datasets are generated when needed and are never committed or loaded into the demo database.
+The deployed demo is kept small to stay well inside Neon's 1 GB limit. It currently holds 150 synthetic orders and no partner files. The 100k datasets are generated when needed and are never committed or loaded into the demo database.
 
 ### A26. AI mapping depends on time
 Gemini is optional, as confirmed. Heuristic suggestions are always available, and are what runs unless `GEMINI_API_KEY` is set. The Gemini integration makes a real REST call with a structured output schema, but it has only been tested against mocked responses, because no key has been configured. It hasn't yet been exercised against the live API. If it isn't finished, the product describes its suggestions as rule-based and doesn't claim AI.

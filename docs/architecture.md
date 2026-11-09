@@ -418,7 +418,7 @@ docker-compose.yml
 - Uploaded files are never executed and never served inline.
 - All SQL is parameterised, including dynamic filters.
 - Sensitive actions are written to the audit log in the same transaction as the change.
-- The repository only ever contains synthetic data. Demo credentials are demo-only and published in `deployment.md`.
+- The repository only ever contains synthetic data. Demo credentials are demo-only, and given to reviewers in the submitted copy of `deployment.md`. They aren't committed.
 - Deployment credentials stay outside the repository. `scripts/with_env.py` loads them for a single local command, and masks them in its output.
 - The test suite drops the whole schema, so it refuses to run on any database not named for testing.
 
